@@ -1,0 +1,11 @@
+global:
+  env: local
+
+log:
+  level: info
+  format: text
+  service_name: notification-worker
+
+servers:
+  client:
+    addr: localhost:38082

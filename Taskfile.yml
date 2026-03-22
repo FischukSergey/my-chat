@@ -1,0 +1,80 @@
+# https://taskfile.dev
+version: "3"
+
+silent: true
+
+vars:
+  GO_MODULE: my-chat
+  GO_FILES:
+    sh: find . -type f -name '*.go' -not -path "./vendor/*" -not -path "*.gen.go" | tr "\n" " "
+  GOLANGCI_LINT_VERSION: v2.1.6
+  GOLANGCI_LINT_CACHE:
+    sh: echo "$HOME/Library/Caches/golangci-lint"
+  DOCKER_COMPOSE_CMD: "docker compose"
+
+tasks:
+  default:
+    cmds:
+      - task: tidy
+      - task: fmt
+      - task: lint
+      - task: test
+      - task: build
+
+  tools:install:
+    desc: Install development tools locally
+    cmds:
+      - go install mvdan.cc/gofumpt@latest
+      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
+
+  tidy:
+    desc: Synchronize go.mod and go.sum
+    cmds:
+      - go mod tidy
+
+  fmt:
+    desc: Format Go files
+    cmds:
+      - gofumpt -w {{.GO_FILES}}
+
+  lint:
+    desc: Run golangci-lint in Docker (default)
+    cmds:
+      - mkdir -p {{.GOLANGCI_LINT_CACHE}}
+      - task: lint:cmd
+        vars:
+          CLI_ARGS: "run -v --fix --timeout=5m ./..."
+
+  lint:cmd:
+    desc: Run golangci-lint command in Docker
+    cmds:
+      - |
+        docker run --rm \
+          -v "$(pwd):/app" -w /app \
+          -v "{{.GOLANGCI_LINT_CACHE}}:/root/.cache" \
+          -e GOEXPERIMENT=rangefunc \
+          golangci/golangci-lint:{{.GOLANGCI_LINT_VERSION}} \
+          golangci-lint {{.CLI_ARGS}}
+
+  lint:docker:
+    desc: Alias for lint
+    cmds:
+      - task: lint
+
+  lint:local:
+    desc: Run golangci-lint locally (optional)
+    cmds:
+      - golangci-lint run -v --timeout=5m ./...
+
+  test:
+    desc: Run unit tests
+    cmds:
+      - go test -race -count=1 ./...
+
+  build:
+    desc: Build all binaries
+    cmds:
+      - go build ./cmd/main-service
+      - go build ./cmd/auth-proxy
+      - go build ./cmd/notification-worker
+      - go build ./cmd/message-expirer

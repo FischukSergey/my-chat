@@ -1,0 +1,10 @@
+services:
+  main-service:
+    image: my-chat/main-service:latest
+    container_name: my-chat-main-service-prod
+    restart: unless-stopped
+    environment:
+      HTTP_ADDR: ":8080"
+      LOG_LEVEL: "info"
+    ports:
+      - "8080:8080"

@@ -1,0 +1,11 @@
+global:
+  env: local
+
+log:
+  level: info
+  format: text
+  service_name: main-service
+
+servers:
+  client:
+    addr: localhost:8080
