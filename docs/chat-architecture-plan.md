@@ -180,6 +180,7 @@ my-chat/
 - `POST /api/v1/messages/{id}/read`
 - `GET /api/v1/me/unread-count`
 - `GET /health`
+- `GET /debug` (debug web client для ручной отладки backend)
 
 ### 6.2 WebSocket
 - `GET /ws/connect` (JWT в header/cookie)
@@ -189,6 +190,34 @@ my-chat/
   - `message_read`
   - `message_deleted`
   - `badge_updated`
+
+### 6.3 Debug web client (временный инструмент разработки)
+
+Цель:
+- ускорить отладку backend до готовности мобильного клиента;
+- тестировать HTTP/WS сценарии вручную из браузера;
+- быстро проверять контракты API и формат событий.
+
+Формат:
+- endpoint `GET /debug` в `main-service`;
+- одна встроенная HTML-страница без сборки фронтенда;
+- ручные действия: health check, кастомный HTTP запрос, подключение к WS, отправка/получение сообщений.
+
+Покрывает:
+- login/refresh/logout (когда endpoint'ы будут готовы);
+- send/read message;
+- realtime-доставку через WS;
+- события `message_deleted` и проверку TTL-сценариев.
+
+Не покрывает полностью:
+- нативный Face ID/Touch ID;
+- badge на иконке приложения;
+- поведение push в фоне на iOS/Android.
+
+Правила использования:
+- debug client только для `local/dev` окружения;
+- не использовать как пользовательский UI;
+- в production можно отключать роут `/debug` флагом конфигурации.
 
 ---
 
@@ -285,12 +314,14 @@ my-chat/
 ### Sprint 1 (MVP backend foundation)
 - каркас репозитория и конфиги;
 - `main-service` + `/health`;
+- `main-service` + `/debug` для ручной отладки API/WS;
 - миграции `users/dialogs/messages`;
 - базовый auth (login/refresh/logout);
 - отправка/чтение сообщений через HTTP;
 - WebSocket подключение и `message_new`.
 
 Критерий: два пользователя могут обменяться сообщениями онлайн.
+Доп. критерий: ключевые backend-сценарии воспроизводимы через `/debug` без мобильного клиента.
 
 ### Sprint 2 (уведомления + badge)
 - регистрация device token;
@@ -336,9 +367,9 @@ my-chat/
 
 ## 15) Что делать прямо сейчас
 
-1. Утвердить стек клиента (рекомендация: Capacitor + React/Ionic).
+1. Утвердить режим разработки клиента: сначала `debug web client`, затем мобильный UI.
 2. Зафиксировать auth-стратегию для MVP (локальный JWT или внешний IdP).
-3. Создать skeleton `cmd/main-service` и `internal/{handlers,services,store,...}`.
-4. Реализовать вертикальный срез:
+3. Реализовать вертикальный срез:
    - login -> send message -> receive message -> mark read -> unread count.
-5. После этого подключать push и TTL.
+4. Добавить удаление сообщений по TTL и событие `message_deleted`.
+5. После стабилизации API/WS подключать push, badge и Face ID в мобильном клиенте.

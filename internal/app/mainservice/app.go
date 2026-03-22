@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"my-chat/internal/config"
+	debughandler "my-chat/internal/handlers/debug"
 	"my-chat/internal/handlers/health"
 	"my-chat/internal/logger"
 )
@@ -33,6 +34,7 @@ func New(cfg config.Config) (*App, error) {
 
 	router := chi.NewRouter()
 	router.Get("/health", health.Handle)
+	router.Get("/debug", debughandler.Handle)
 
 	server := &http.Server{
 		Addr:              cfg.Servers.Client.Addr,
