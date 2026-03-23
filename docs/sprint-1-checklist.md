@@ -4,42 +4,44 @@
 
 ## 1) Подготовка
 
-- [ ] Утвердить auth-стратегию MVP (локальный JWT или dev-stub).
-- [ ] Зафиксировать контракт событий WebSocket (`message_new`, `message_delivered`, `message_read`).
-- [ ] Утвердить структуру ошибок API (`code`, `message`, `details`).
+- [x] Утвердить auth-стратегию MVP (локальный JWT или dev-stub).
+- [x] Зафиксировать контракт событий WebSocket (`message_new`, `message_delivered`, `message_read`).
+- [x] Утвердить структуру ошибок API (`code`, `message`, `details`).
+
+Примечание: контракты Sprint 1 зафиксированы в `docs/api-sprint-1.md`.
 
 ## 2) База данных и миграции
 
-- [ ] Создать миграцию `users`.
-- [ ] Создать миграцию `dialogs` (уникальная пара пользователей).
-- [ ] Создать миграцию `messages`.
-- [ ] Создать миграцию `message_receipts`.
-- [ ] Реализовать инициализацию PostgreSQL в `internal/store`.
-- [ ] Реализовать запуск миграций при старте `main-service` (local/dev).
+- [x] Создать миграцию `users`.
+- [x] Создать миграцию `dialogs` (уникальная пара пользователей).
+- [x] Создать миграцию `messages`.
+- [x] Создать миграцию `message_receipts`.
+- [x] Реализовать инициализацию PostgreSQL в `internal/store`.
+- [x] Реализовать запуск миграций при старте `main-service` (local/dev).
 
 ## 3) Репозитории и сервисы
 
-- [ ] Реализовать repository для `dialogs`.
-- [ ] Реализовать repository для `messages`.
-- [ ] Реализовать repository для `message_receipts`.
-- [ ] Реализовать сервисный слой для отправки/чтения сообщений.
-- [ ] Реализовать вычисление `unread_count`.
+- [x] Реализовать repository для `dialogs`.
+- [x] Реализовать repository для `messages`.
+- [x] Реализовать repository для `message_receipts`.
+- [x] Реализовать сервисный слой для отправки/чтения сообщений.
+- [x] Реализовать вычисление `unread_count`.
 
 ## 4) Auth (MVP)
 
-- [ ] Реализовать `POST /api/v1/auth/login`.
-- [ ] Реализовать `POST /api/v1/auth/refresh`.
-- [ ] Реализовать `POST /api/v1/auth/logout`.
-- [ ] Добавить middleware извлечения `user_id` из токена.
-- [ ] Добавить базовую валидацию auth-запросов.
+- [x] Реализовать `POST /api/v1/auth/login`.
+- [x] Реализовать `POST /api/v1/auth/refresh`.
+- [x] Реализовать `POST /api/v1/auth/logout`.
+- [x] Добавить middleware извлечения `user_id` из токена.
+- [x] Добавить базовую валидацию auth-запросов.
 
 ## 5) HTTP API чата
 
-- [ ] Реализовать `POST /api/v1/dialogs/{id}/messages`.
-- [ ] Реализовать `GET /api/v1/dialogs/{id}/messages`.
-- [ ] Реализовать `POST /api/v1/messages/{id}/read`.
-- [ ] Реализовать `GET /api/v1/me/unread-count`.
-- [ ] Добавить DTO и валидацию входных параметров.
+- [x] Реализовать `POST /api/v1/dialogs/{id}/messages`.
+- [x] Реализовать `GET /api/v1/dialogs/{id}/messages`.
+- [x] Реализовать `POST /api/v1/messages/{id}/read`.
+- [x] Реализовать `GET /api/v1/me/unread-count`.
+- [x] Добавить DTO и валидацию входных параметров.
 
 ## 6) WebSocket realtime
 
