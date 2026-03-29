@@ -15,6 +15,8 @@ import (
 	chathandler "my-chat/internal/handlers/chat"
 	debughandler "my-chat/internal/handlers/debug"
 	"my-chat/internal/handlers/health"
+	wshandler "my-chat/internal/handlers/ws"
+	"my-chat/internal/hub"
 	"my-chat/internal/logger"
 	mw "my-chat/internal/middleware"
 	chatservice "my-chat/internal/services/chat"
@@ -57,12 +59,16 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	dialogRepo := store.NewDialogRepository(postgresStore)
 	messageRepo := store.NewMessageRepository(postgresStore)
 	receiptRepo := store.NewReceiptRepository(postgresStore)
-	chatSvc := chatservice.NewService(dialogRepo, messageRepo, receiptRepo)
+
+	connHub := hub.New(log)
+	chatSvc := chatservice.NewService(dialogRepo, messageRepo, receiptRepo, connHub)
 	chatHandler := chathandler.New(chatSvc)
+	wsHandler := wshandler.New(connHub, cfg.JWT.Secret, log)
 
 	router := chi.NewRouter()
 	router.Get("/health", health.Handle)
 	router.Get("/debug", debughandler.Handle)
+	router.Get("/ws/connect", wsHandler.Connect)
 
 	router.Group(func(r chi.Router) {
 		r.Use(mw.Authenticate(cfg.JWT.Secret))

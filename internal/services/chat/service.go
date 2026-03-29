@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"my-chat/internal/hub"
 	"my-chat/internal/store"
 )
 
@@ -23,6 +24,7 @@ type Service struct {
 	dialogs  dialogRepository
 	messages messageRepository
 	receipts receiptRepository
+	notifier notifier
 }
 
 type dialogRepository interface {
@@ -31,6 +33,7 @@ type dialogRepository interface {
 
 type messageRepository interface {
 	Create(ctx context.Context, message store.Message) (store.Message, error)
+	GetByID(ctx context.Context, messageID string) (store.Message, error)
 	ListByDialog(ctx context.Context, dialogID string, limit int, before *time.Time) ([]store.Message, error)
 }
 
@@ -40,16 +43,22 @@ type receiptRepository interface {
 	CountUnread(ctx context.Context, userID string) (int, error)
 }
 
+type notifier interface {
+	Send(ctx context.Context, userID string, event hub.Event) bool
+}
+
 // NewService создает сервис чата.
 func NewService(
 	dialogs dialogRepository,
 	messages messageRepository,
 	receipts receiptRepository,
+	n notifier,
 ) *Service {
 	return &Service{
 		dialogs:  dialogs,
 		messages: messages,
 		receipts: receipts,
+		notifier: n,
 	}
 }
 
@@ -78,7 +87,32 @@ func (s *Service) SendMessage(ctx context.Context, message store.Message) (store
 		return store.Message{}, fmt.Errorf("ensure message receipt: %w", err)
 	}
 
+	s.notifyNewMessage(ctx, created, receiverID)
+
 	return created, nil
+}
+
+func (s *Service) notifyNewMessage(ctx context.Context, msg store.Message, receiverID string) {
+	newEvent := hub.NewEvent("message_new", map[string]any{
+		"message_id": msg.ID,
+		"dialog_id":  msg.DialogID,
+		"sender_id":  msg.SenderID,
+		"body":       msg.Body,
+		"created_at": msg.CreatedAt.UTC().Format(time.RFC3339),
+	})
+
+	receiverOnline := s.notifier.Send(ctx, receiverID, newEvent)
+	if !receiverOnline {
+		return
+	}
+
+	deliveredAt := time.Now().UTC()
+	s.notifier.Send(ctx, msg.SenderID, hub.NewEvent("message_delivered", map[string]any{
+		"message_id":   msg.ID,
+		"dialog_id":    msg.DialogID,
+		"user_id":      receiverID,
+		"delivered_at": deliveredAt.Format(time.RFC3339),
+	}))
 }
 
 // ListMessages возвращает историю сообщений диалога.
@@ -111,9 +145,21 @@ func (s *Service) MarkRead(ctx context.Context, messageID, userID string, readAt
 		readAt = time.Now().UTC()
 	}
 
-	if err := s.receipts.MarkRead(ctx, messageID, userID, readAt); err != nil {
+	msg, err := s.messages.GetByID(ctx, messageID)
+	if err != nil {
+		return fmt.Errorf("get message: %w", err)
+	}
+
+	if err = s.receipts.MarkRead(ctx, messageID, userID, readAt); err != nil {
 		return fmt.Errorf("mark message read: %w", err)
 	}
+
+	s.notifier.Send(ctx, msg.SenderID, hub.NewEvent("message_read", map[string]any{
+		"message_id": messageID,
+		"dialog_id":  msg.DialogID,
+		"user_id":    userID,
+		"read_at":    readAt.UTC().Format(time.RFC3339),
+	}))
 
 	return nil
 }

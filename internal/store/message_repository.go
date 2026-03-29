@@ -44,6 +44,27 @@ RETURNING id, dialog_id, sender_id, body, created_at`
 	return created, nil
 }
 
+// GetByID возвращает сообщение по его идентификатору.
+func (r *MessageRepository) GetByID(ctx context.Context, messageID string) (Message, error) {
+	const query = `
+SELECT id, dialog_id, sender_id, body, created_at
+FROM messages
+WHERE id = $1`
+
+	var message Message
+	if err := r.poolDB.QueryRow(ctx, query, messageID).Scan(
+		&message.ID,
+		&message.DialogID,
+		&message.SenderID,
+		&message.Body,
+		&message.CreatedAt,
+	); err != nil {
+		return Message{}, fmt.Errorf("get message by id: %w", err)
+	}
+
+	return message, nil
+}
+
 // ListByDialog возвращает список сообщений для диалога с пагинацией.
 func (r *MessageRepository) ListByDialog(ctx context.Context, dialogID string, limit int, before *time.Time) ([]Message, error) {
 	const queryWithBefore = `
