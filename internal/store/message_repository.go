@@ -87,9 +87,11 @@ LIMIT $2`
 	)
 
 	if before != nil {
-		rows, err = r.poolDB.Query(ctx, queryWithBefore, dialogID, *before, limit) //nolint:sqlclosecheck // closed via defer rows.Close() below
+		//nolint:sqlclosecheck // closed via defer rows.Close() below
+		rows, err = r.poolDB.Query(ctx, queryWithBefore, dialogID, *before, limit)
 	} else {
-		rows, err = r.poolDB.Query(ctx, queryWithoutBefore, dialogID, limit) //nolint:sqlclosecheck // closed via defer rows.Close() below
+		//nolint:sqlclosecheck // closed via defer rows.Close() below
+		rows, err = r.poolDB.Query(ctx, queryWithoutBefore, dialogID, limit)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("select messages by dialog: %w", err)
