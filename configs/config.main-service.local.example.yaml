@@ -9,3 +9,12 @@ log:
 servers:
   client:
     addr: localhost:8080
+
+database:
+  dsn: postgres://chat_service:chat_service@localhost:33432/chat_service?sslmode=disable
+  auto_migrate: true
+
+jwt:
+  secret: local-dev-secret-change-in-prod
+  access_token_ttl_seconds: 900
+  refresh_token_ttl_seconds: 604800

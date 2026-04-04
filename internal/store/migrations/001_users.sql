@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

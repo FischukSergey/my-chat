@@ -8,4 +8,9 @@ log:
 
 servers:
   client:
-    addr: localhost:38081
+    addr: localhost:33081
+
+jwt:
+  secret: local-dev-secret-change-in-prod
+  access_token_ttl_seconds: 900
+  refresh_token_ttl_seconds: 604800

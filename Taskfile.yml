@@ -71,6 +71,11 @@ tasks:
     cmds:
       - go test -race -count=1 ./...
 
+  test:integration:
+    desc: Run integration tests (requires TEST_DATABASE_URL env)
+    cmds:
+      - go test -race -count=1 -tags integration ./...
+
   build:
     desc: Build all binaries
     cmds:
@@ -78,3 +83,18 @@ tasks:
       - go build ./cmd/auth-proxy
       - go build ./cmd/notification-worker
       - go build ./cmd/message-expirer
+
+  local:up:
+    desc: Start local environment (postgres + main-service) via docker compose
+    cmds:
+      - "{{.DOCKER_COMPOSE_CMD}} -f deploy/local/docker-compose.local.yml up -d --build"
+
+  local:down:
+    desc: Stop local environment
+    cmds:
+      - "{{.DOCKER_COMPOSE_CMD}} -f deploy/local/docker-compose.local.yml down"
+
+  local:logs:
+    desc: Follow logs of local environment
+    cmds:
+      - "{{.DOCKER_COMPOSE_CMD}} -f deploy/local/docker-compose.local.yml logs -f"
