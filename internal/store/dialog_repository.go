@@ -65,7 +65,7 @@ RETURNING id, user_a_id, user_b_id, created_at`
 	return dialog, nil
 }
 
-func normalizeDialogUsers(user1ID, user2ID string) (string, string, error) {
+func normalizeDialogUsers(user1ID, user2ID string) (userAID, userBID string, err error) {
 	if user1ID == "" || user2ID == "" || user1ID == user2ID {
 		return "", "", errInvalidDialogUsers
 	}

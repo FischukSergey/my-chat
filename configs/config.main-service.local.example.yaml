@@ -11,7 +11,7 @@ servers:
     addr: localhost:8080
 
 database:
-  dsn: postgres://chat_service:chat_service@localhost:5432/chat_service?sslmode=disable
+  dsn: postgres://chat_service:chat_service@localhost:33432/chat_service?sslmode=disable
   auto_migrate: true
 
 jwt:

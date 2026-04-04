@@ -232,7 +232,7 @@ func toMessageResponse(m store.Message) messageResponse {
 func respondJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	_ = json.NewEncoder(w).Encode(payload) //nolint:errchkjson // payload is always a concrete response struct
 }
 
 func respondError(w http.ResponseWriter, status int, code, message string) {

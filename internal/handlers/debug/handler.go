@@ -42,8 +42,11 @@ const pageHTML = `<!doctype html>
   <div class="grid">
     <section class="card">
       <strong>1) Базовые настройки</strong>
-      <label>Base URL HTTP
+      <label>Base URL HTTP (main-service)
         <input id="baseUrl" value="http://localhost:8080" />
+      </label>
+      <label>Auth URL (auth-proxy)
+        <input id="authUrl" value="http://localhost:33081" />
       </label>
       <label>Access token (опционально)
         <input id="token" placeholder="Bearer token без префикса" />
@@ -80,6 +83,7 @@ const pageHTML = `<!doctype html>
       <label>WebSocket URL
         <input id="wsUrl" value="ws://localhost:8080/ws/connect" />
       </label>
+      <p class="small">Токен из раздела 1 добавится автоматически как ?token= при подключении.</p>
       <div class="row">
         <button id="wsConnect">Подключить WS</button>
         <button id="wsClose">Отключить WS</button>
@@ -88,6 +92,42 @@ const pageHTML = `<!doctype html>
         <textarea id="wsOut" placeholder='{"type":"ping"}'></textarea>
       </label>
       <button id="wsSend">Отправить в WS</button>
+    </section>
+
+    <section class="card">
+      <strong>4) Шорткаты</strong>
+      <div class="row">
+        <div>
+          <strong class="small">Login</strong>
+          <label>user_id
+            <input id="scUserId" placeholder="11111111-1111-1111-1111-111111111111" />
+          </label>
+          <button id="scLogin">Login (сохранить токен)</button>
+        </div>
+        <div>
+          <strong class="small">Unread count</strong>
+          <button id="scUnread" style="margin-top:28px">GET /me/unread-count</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div>
+          <strong class="small">Send message</strong>
+          <label>dialog_id
+            <input id="scDialogId" placeholder="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" />
+          </label>
+          <label>body
+            <input id="scBody" placeholder="hello" />
+          </label>
+          <button id="scSend">POST send message</button>
+        </div>
+        <div>
+          <strong class="small">Mark read</strong>
+          <label>message_id
+            <input id="scMessageId" placeholder="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" />
+          </label>
+          <button id="scRead" style="margin-top:28px">POST mark read</button>
+        </div>
+      </div>
     </section>
 
     <section class="card">
@@ -156,10 +196,15 @@ const pageHTML = `<!doctype html>
     };
 
     $("wsConnect").onclick = () => {
-      const url = $("wsUrl").value.trim();
+      let url = $("wsUrl").value.trim();
       if (!url) {
         log("ERR", "empty ws url");
         return;
+      }
+
+      const token = $("token").value.trim();
+      if (token) {
+        url += (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);
       }
 
       if (socket && socket.readyState === WebSocket.OPEN) {
@@ -201,6 +246,94 @@ const pageHTML = `<!doctype html>
       const payload = $("wsOut").value;
       socket.send(payload);
       log("WS>", payload);
+    };
+
+    function scBase() {
+      return $("baseUrl").value.trim().replace(/\/+$/, "");
+    }
+
+    function scHeaders() {
+      const token = $("token").value.trim();
+      const h = { "Content-Type": "application/json" };
+      if (token) h["Authorization"] = "Bearer " + token;
+      return h;
+    }
+
+    $("scLogin").onclick = async () => {
+      const userID = $("scUserId").value.trim();
+      if (!userID) { log("ERR", "user_id is empty"); return; }
+      const authBase = $("authUrl").value.trim().replace(/\/+$/, "");
+      try {
+        const res = await fetch(authBase + "/api/v1/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: userID }),
+        });
+        const data = await res.json();
+        setStatus("login: " + res.status, !res.ok);
+        log("AUTH", "login " + userID + " -> " + res.status + " " + JSON.stringify(data));
+        if (data.access_token) {
+          $("token").value = data.access_token;
+          log("AUTH", "token saved");
+        }
+      } catch (err) {
+        setStatus("login error", true);
+        log("ERR", String(err));
+      }
+    };
+
+    $("scSend").onclick = async () => {
+      const dialogID = $("scDialogId").value.trim();
+      const body = $("scBody").value.trim();
+      if (!dialogID) { log("ERR", "dialog_id is empty"); return; }
+      if (!body) { log("ERR", "body is empty"); return; }
+      try {
+        const res = await fetch(scBase() + "/api/v1/dialogs/" + dialogID + "/messages", {
+          method: "POST",
+          headers: scHeaders(),
+          body: JSON.stringify({ body }),
+        });
+        const data = await res.json();
+        setStatus("send: " + res.status, !res.ok);
+        log("SEND", "-> " + res.status + " " + JSON.stringify(data));
+        if (data.message && data.message.id) {
+          $("scMessageId").value = data.message.id;
+          log("SEND", "message_id saved: " + data.message.id);
+        }
+      } catch (err) {
+        setStatus("send error", true);
+        log("ERR", String(err));
+      }
+    };
+
+    $("scRead").onclick = async () => {
+      const msgID = $("scMessageId").value.trim();
+      if (!msgID) { log("ERR", "message_id is empty"); return; }
+      try {
+        const res = await fetch(scBase() + "/api/v1/messages/" + msgID + "/read", {
+          method: "POST",
+          headers: scHeaders(),
+        });
+        setStatus("read: " + res.status, !res.ok);
+        log("READ", msgID + " -> " + res.status);
+      } catch (err) {
+        setStatus("read error", true);
+        log("ERR", String(err));
+      }
+    };
+
+    $("scUnread").onclick = async () => {
+      try {
+        const res = await fetch(scBase() + "/api/v1/me/unread-count", {
+          headers: scHeaders(),
+        });
+        const data = await res.json();
+        setStatus("unread: " + res.status, !res.ok);
+        log("UNREAD", "-> " + res.status + " " + JSON.stringify(data));
+      } catch (err) {
+        setStatus("unread error", true);
+        log("ERR", String(err));
+      }
     };
   </script>
 </body>

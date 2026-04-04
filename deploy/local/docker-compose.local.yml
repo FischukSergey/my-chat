@@ -7,19 +7,28 @@ services:
       POSTGRES_USER: chat_service
       POSTGRES_PASSWORD: chat_service
     ports:
-      - "5432:5432"
+      - "33432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U chat_service -d chat_service"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  auth-proxy:
+    build:
+      context: ../../
+      dockerfile: auth-proxy.Dockerfile
+    container_name: my-chat-auth-proxy-local
+    command: ["-config", "configs/config.auth-proxy.docker.local.yaml"]
+    ports:
+      - "33081:33081"
+
   main-service:
     build:
       context: ../../
       dockerfile: prod.Dockerfile
     container_name: my-chat-main-service-local
-    command: ["./main-service", "-config", "configs/config.main-service.local.example.yaml"]
+    command: ["-config", "configs/config.main-service.docker.local.yaml"]
     ports:
       - "8080:8080"
     depends_on:

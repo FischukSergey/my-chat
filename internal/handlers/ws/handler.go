@@ -32,7 +32,7 @@ func New(h *hub.Hub, jwtSecret string, logger *slog.Logger) *Handler {
 // Connect обрабатывает GET /ws/connect.
 // JWT проверяется до апгрейда, чтобы можно было ответить HTTP 401.
 func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
-	tokenString, ok := bearerToken(r)
+	tokenString, ok := tokenFromRequest(r)
 	if !ok {
 		respondUnauthorized(w)
 		return
@@ -63,7 +63,7 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		h.hub.Unregister(userID, c)
-		rawConn.CloseNow()
+		_ = rawConn.CloseNow()
 		h.logger.Info("ws disconnected", slog.String("user_id", userID))
 	}()
 
@@ -74,6 +74,20 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// tokenFromRequest извлекает токен из Authorization-заголовка или query-параметра ?token=.
+// Query-param используется для браузерного WebSocket, который не поддерживает кастомные заголовки.
+func tokenFromRequest(r *http.Request) (string, bool) {
+	if token, ok := bearerToken(r); ok {
+		return token, true
+	}
+
+	if token := r.URL.Query().Get("token"); token != "" {
+		return token, true
+	}
+
+	return "", false
 }
 
 func bearerToken(r *http.Request) (string, bool) {

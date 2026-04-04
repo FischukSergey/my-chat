@@ -27,14 +27,14 @@ func NewEvent(name string, data any) Event {
 	}
 }
 
-// conn — обёртка над одним WebSocket-соединением.
-type conn struct {
+// Conn — обёртка над одним WebSocket-соединением.
+type Conn struct {
 	mu  sync.Mutex
 	raw *websocket.Conn
 }
 
 // write потокобезопасно отправляет JSON-сообщение.
-func (c *conn) write(ctx context.Context, event Event) error {
+func (c *Conn) write(ctx context.Context, event Event) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
@@ -49,25 +49,25 @@ func (c *conn) write(ctx context.Context, event Event) error {
 // Hub хранит активные соединения по user_id.
 type Hub struct {
 	mu     sync.RWMutex
-	conns  map[string][]*conn
+	conns  map[string][]*Conn
 	logger *slog.Logger
 }
 
 // New создаёт Hub.
 func New(logger *slog.Logger) *Hub {
 	return &Hub{
-		conns:  make(map[string][]*conn),
+		conns:  make(map[string][]*Conn),
 		logger: logger,
 	}
 }
 
 // NewConn оборачивает websocket.Conn.
-func NewConn(raw *websocket.Conn) *conn {
-	return &conn{raw: raw}
+func NewConn(raw *websocket.Conn) *Conn {
+	return &Conn{raw: raw}
 }
 
 // Register регистрирует соединение для пользователя.
-func (h *Hub) Register(userID string, c *conn) {
+func (h *Hub) Register(userID string, c *Conn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -75,7 +75,7 @@ func (h *Hub) Register(userID string, c *conn) {
 }
 
 // Unregister удаляет соединение из реестра.
-func (h *Hub) Unregister(userID string, c *conn) {
+func (h *Hub) Unregister(userID string, c *Conn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -99,7 +99,7 @@ func (h *Hub) Unregister(userID string, c *conn) {
 // Отправка best-effort: ошибки логируются, но не возвращаются.
 func (h *Hub) Send(ctx context.Context, userID string, event Event) bool {
 	h.mu.RLock()
-	list := make([]*conn, len(h.conns[userID]))
+	list := make([]*Conn, len(h.conns[userID]))
 	copy(list, h.conns[userID])
 	h.mu.RUnlock()
 

@@ -124,13 +124,13 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ---
 
-func (h *Handler) issueTokenPair(userID string) (string, string, error) {
-	access, err := jwt.IssueAccess(userID, h.cfg.JWTSecret, time.Duration(h.cfg.AccessTokenTTLSec)*time.Second)
+func (h *Handler) issueTokenPair(userID string) (access, refresh string, err error) {
+	access, err = jwt.IssueAccess(userID, h.cfg.JWTSecret, time.Duration(h.cfg.AccessTokenTTLSec)*time.Second)
 	if err != nil {
 		return "", "", err
 	}
 
-	refresh, err := jwt.IssueRefresh(userID, h.cfg.JWTSecret, time.Duration(h.cfg.RefreshTokenTTLSec)*time.Second)
+	refresh, err = jwt.IssueRefresh(userID, h.cfg.JWTSecret, time.Duration(h.cfg.RefreshTokenTTLSec)*time.Second)
 	if err != nil {
 		return "", "", err
 	}
@@ -141,7 +141,7 @@ func (h *Handler) issueTokenPair(userID string) (string, string, error) {
 func respondJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	_ = json.NewEncoder(w).Encode(payload) //nolint:errchkjson // payload is always a concrete response struct
 }
 
 func respondError(w http.ResponseWriter, status int, code, message string) {

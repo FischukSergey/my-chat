@@ -11,9 +11,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	authhandler "my-chat/internal/handlers/auth"
-
 	"my-chat/internal/config"
+	authhandler "my-chat/internal/handlers/auth"
 	"my-chat/internal/logger"
 )
 
@@ -42,6 +41,7 @@ func New(cfg config.Config) (*App, error) {
 	})
 
 	router := chi.NewRouter()
+	router.Use(corsMiddleware)
 	router.Post("/api/v1/auth/login", authHandler.Login)
 	router.Post("/api/v1/auth/refresh", authHandler.Refresh)
 	router.Post("/api/v1/auth/logout", authHandler.Logout)
@@ -57,6 +57,22 @@ func New(cfg config.Config) (*App, error) {
 		logger: log,
 		server: server,
 	}, nil
+}
+
+// corsMiddleware разрешает cross-origin запросы для локальной отладки через /debug.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Run запускает сервер и корректно завершает его по сигналу отмены контекста.

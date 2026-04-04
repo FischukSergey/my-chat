@@ -45,27 +45,27 @@
 
 ## 6) WebSocket realtime
 
-- [ ] Реализовать `GET /ws/connect`.
-- [ ] Реализовать реестр активных подключений по `user_id`.
-- [ ] Отправлять событие `message_new` получателю.
-- [ ] Отправлять событие `message_delivered` отправителю.
-- [ ] Отправлять событие `message_read` отправителю.
-- [ ] Добавить корректное закрытие соединений и cleanup.
+- [x] Реализовать `GET /ws/connect`.
+- [x] Реализовать реестр активных подключений по `user_id`.
+- [x] Отправлять событие `message_new` получателю.
+- [x] Отправлять событие `message_delivered` отправителю.
+- [x] Отправлять событие `message_read` отправителю.
+- [x] Добавить корректное закрытие соединений и cleanup.
 
 ## 7) Debug web client
 
-- [ ] Поддержать health-check на странице `/debug`.
-- [ ] Поддержать произвольные HTTP-запросы на странице `/debug`.
-- [ ] Поддержать подключение/отправку/чтение WebSocket на странице `/debug`.
-- [ ] Добавить шорткаты для auth/send/read/unread в debug UI.
-- [ ] Подготовить ручной сценарий проверки в docs.
+- [x] Поддержать health-check на странице `/debug`.
+- [x] Поддержать произвольные HTTP-запросы на странице `/debug`.
+- [x] Поддержать подключение/отправку/чтение WebSocket на странице `/debug`.
+- [x] Добавить шорткаты для auth/send/read/unread в debug UI.
+- [x] Подготовить ручной сценарий проверки в docs.
 
 ## 8) Конфигурация и локальный запуск
 
-- [ ] Проверить все `configs/config.*.local.example.yaml`.
-- [ ] Проверить запуск `main-service` с `-config`.
-- [ ] Обновить `deploy/local/docker-compose.local.yml` для текущего сценария Sprint 1.
-- [ ] Проверить локальный запуск end-to-end с PostgreSQL.
+- [x] Проверить все `configs/config.*.local.example.yaml`.
+- [x] Проверить запуск `main-service` с `-config`.
+- [x] Обновить `deploy/local/docker-compose.local.yml` для текущего сценария Sprint 1.
+- [x] Проверить локальный запуск end-to-end с PostgreSQL.
 
 ## 9) Тесты и качество
 

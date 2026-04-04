@@ -116,7 +116,12 @@ func (s *Service) notifyNewMessage(ctx context.Context, msg store.Message, recei
 }
 
 // ListMessages возвращает историю сообщений диалога.
-func (s *Service) ListMessages(ctx context.Context, userID, dialogID string, limit int, before *time.Time) ([]store.Message, error) {
+func (s *Service) ListMessages(
+	ctx context.Context,
+	userID, dialogID string,
+	limit int,
+	before *time.Time,
+) ([]store.Message, error) {
 	dialog, err := s.dialogs.GetByID(ctx, dialogID)
 	if err != nil {
 		return nil, fmt.Errorf("get dialog: %w", err)

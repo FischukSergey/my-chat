@@ -4,11 +4,15 @@ global:
 log:
   level: info
   format: text
-  service_name: auth-proxy
+  service_name: main-service
 
 servers:
   client:
-    addr: localhost:33081
+    addr: 0.0.0.0:8080
+
+database:
+  dsn: postgres://chat_service:chat_service@postgres:5432/chat_service?sslmode=disable
+  auto_migrate: true
 
 jwt:
   secret: local-dev-secret-change-in-prod

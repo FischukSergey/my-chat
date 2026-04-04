@@ -8,7 +8,7 @@ log:
 
 servers:
   client:
-    addr: localhost:33081
+    addr: 0.0.0.0:33081
 
 jwt:
   secret: local-dev-secret-change-in-prod

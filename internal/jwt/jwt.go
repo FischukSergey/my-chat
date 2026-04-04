@@ -10,9 +10,6 @@ import (
 )
 
 const (
-	claimUserID    = "user_id"
-	claimTokenType = "token_type"
-
 	tokenTypeAccess  = "access"
 	tokenTypeRefresh = "refresh"
 )
