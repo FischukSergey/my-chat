@@ -33,6 +33,13 @@ func New(cfg config.Config) (*App, error) {
 	}
 
 	log := logger.NewLogger(cfg.Log)
+	log.Info(
+		"инициализация auth-proxy",
+		slog.String("env", cfg.Global.Env),
+		slog.String("addr", cfg.Servers.Client.Addr),
+		slog.Int("access_token_ttl_sec", cfg.JWT.AccessTokenTTL),
+		slog.Int("refresh_token_ttl_sec", cfg.JWT.RefreshTokenTTL),
+	)
 
 	authHandler := authhandler.New(authhandler.Config{
 		JWTSecret:          cfg.JWT.Secret,
@@ -45,6 +52,7 @@ func New(cfg config.Config) (*App, error) {
 	router.Post("/api/v1/auth/login", authHandler.Login)
 	router.Post("/api/v1/auth/refresh", authHandler.Refresh)
 	router.Post("/api/v1/auth/logout", authHandler.Logout)
+	log.Info("маршруты auth-proxy зарегистрированы", slog.Int("routes_count", 3))
 
 	server := &http.Server{
 		Addr:              cfg.Servers.Client.Addr,
@@ -80,9 +88,11 @@ func (a *App) Run(ctx context.Context) error {
 	errCh := make(chan error, 1)
 
 	go func() {
-		a.logger.Info("запуск auth-proxy", slog.String("addr", a.cfg.Servers.Client.Addr))
+		a.logger.Info("запуск HTTP сервера auth-proxy", slog.String("addr", a.cfg.Servers.Client.Addr))
+		a.logger.Info("auth-proxy готов принимать запросы")
 
 		if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			a.logger.Error("HTTP сервер auth-proxy завершился с ошибкой", slog.String("error", err.Error()))
 			errCh <- err
 			return
 		}
@@ -92,12 +102,19 @@ func (a *App) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
+		cause := context.Cause(ctx)
+		if cause == nil {
+			cause = context.Canceled
+		}
+		a.logger.Info("получен сигнал остановки auth-proxy", slog.String("cause", cause.Error()))
+
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 
 		if err := a.server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shutdown auth-proxy: %w", err)
 		}
+		a.logger.Info("HTTP сервер auth-proxy остановлен")
 
 		return nil
 	case err := <-errCh:

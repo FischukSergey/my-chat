@@ -32,7 +32,7 @@ func TestIntegration_SendListReadUnread(t *testing.T) {
 
 	t.Cleanup(s.Close)
 
-	if err = s.Migrate(ctx); err != nil {
+	if _, err = s.Migrate(ctx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
