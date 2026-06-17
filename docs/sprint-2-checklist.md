@@ -23,10 +23,12 @@
 
 ## 3) Репозитории и store-слой
 
-- [ ] Реализовать `DeviceRepository` (upsert/register, disable/unregister, list active devices).
-- [ ] Реализовать `NotificationOutboxRepository` (enqueue, claim batch, mark sent, mark failed/retry).
-- [ ] Добавить дедупликацию outbox-задач (dedup key).
-- [ ] Добавить unit-тесты репозиториев `devices` и `notification_outbox`.
+- [x] Реализовать `DeviceRepository` (upsert/register, disable/unregister, list active devices).
+- [x] Реализовать `NotificationOutboxRepository` (enqueue, claim batch, mark sent, mark failed/retry).
+- [x] Добавить дедупликацию outbox-задач (dedup key).
+- [x] Добавить unit-тесты репозиториев `devices` и `notification_outbox`.
+
+Примечание: `DeviceRepository` — `internal/store/device_repository.go`; `NotificationOutboxRepository` — `internal/store/notification_outbox_repository.go`. Модели `Device`, `NotificationOutbox` добавлены в `internal/store/models.go`. Дедупликация реализована через `ON CONFLICT (dedup_key) DO NOTHING`. Тесты — `internal/store/repositories_integration_test.go` (build tag `integration`).
 
 ## 4) API `main-service` (devices)
 
