@@ -44,21 +44,40 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	log := logger.NewLogger(cfg.Log)
+	log.Info(
+		"инициализация main-service",
+		slog.String("env", cfg.Global.Env),
+		slog.String("addr", cfg.Servers.Client.Addr),
+		slog.Bool("auto_migrate", cfg.Database.AutoMigrate),
+	)
+
+	log.Info("подключение к PostgreSQL")
 	postgresStore, err := store.New(ctx, cfg.Database.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("init store: %w", err)
 	}
+	log.Info("подключение к PostgreSQL успешно")
 
 	if cfg.Database.AutoMigrate {
-		if err = postgresStore.Migrate(ctx); err != nil {
+		log.Info("запуск миграций БД")
+		migrationReport, migrationErr := postgresStore.Migrate(ctx)
+		if migrationErr != nil {
 			postgresStore.Close()
-			return nil, fmt.Errorf("run migrations: %w", err)
+			return nil, fmt.Errorf("run migrations: %w", migrationErr)
 		}
+		log.Info(
+			"миграции БД применены успешно",
+			slog.Int("migrations_count", len(migrationReport.Applied)),
+			slog.Any("migrations", migrationReport.Applied),
+		)
+	} else {
+		log.Info("автоматические миграции отключены")
 	}
 
 	dialogRepo := store.NewDialogRepository(postgresStore)
 	messageRepo := store.NewMessageRepository(postgresStore)
 	receiptRepo := store.NewReceiptRepository(postgresStore)
+	log.Info("инициализированы репозитории хранилища", slog.Int("repositories_count", 3))
 
 	connHub := hub.New(log)
 	chatSvc := chatservice.NewService(dialogRepo, messageRepo, receiptRepo, connHub)
@@ -78,6 +97,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		r.Post("/api/v1/messages/{id}/read", chatHandler.MarkRead)
 		r.Get("/api/v1/me/unread-count", chatHandler.UnreadCount)
 	})
+	log.Info("маршруты main-service зарегистрированы")
 
 	server := &http.Server{
 		Addr:              cfg.Servers.Client.Addr,
@@ -95,14 +115,19 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 // Run запускает сервер и корректно завершает его по сигналу отмены контекста.
 func (a *App) Run(ctx context.Context) error {
-	defer a.store.Close()
+	defer func() {
+		a.store.Close()
+		a.logger.Info("подключение к PostgreSQL закрыто")
+	}()
 
 	errCh := make(chan error, 1)
 
 	go func() {
-		a.logger.Info("запуск main-service", slog.String("addr", a.cfg.Servers.Client.Addr))
+		a.logger.Info("запуск HTTP сервера main-service", slog.String("addr", a.cfg.Servers.Client.Addr))
+		a.logger.Info("main-service готов принимать запросы")
 
 		if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			a.logger.Error("HTTP сервер main-service завершился с ошибкой", slog.String("error", err.Error()))
 			errCh <- err
 			return
 		}
@@ -112,12 +137,19 @@ func (a *App) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
+		cause := context.Cause(ctx)
+		if cause == nil {
+			cause = context.Canceled
+		}
+		a.logger.Info("получен сигнал остановки main-service", slog.String("cause", cause.Error()))
+
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 
 		if err := a.server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shutdown main-service: %w", err)
 		}
+		a.logger.Info("HTTP сервер main-service остановлен")
 
 		return nil
 	case err := <-errCh:
