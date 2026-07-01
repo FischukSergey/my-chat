@@ -59,7 +59,7 @@ func TestIntegration_SendListReadUnread(t *testing.T) {
 		t.Fatalf("create dialog: %v", err)
 	}
 
-	svc := chat.NewService(dialogRepo, messageRepo, receiptRepo, noopNotifier())
+	svc := chat.NewService(dialogRepo, messageRepo, receiptRepo, noopNotifier(), noopOutbox())
 
 	// Step 1: send message from userA.
 	msg, err := svc.SendMessage(ctx, store.Message{

@@ -4,6 +4,7 @@ package chat_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +61,10 @@ func (m *mockReceiptRepo) MarkRead(ctx context.Context, messageID, userID string
 }
 
 func (m *mockReceiptRepo) CountUnread(ctx context.Context, userID string) (int, error) {
+	if m.countUnreadFn == nil {
+		return 0, nil
+	}
+
 	return m.countUnreadFn(ctx, userID)
 }
 
@@ -71,11 +76,25 @@ func (m *mockNotifier) Send(ctx context.Context, userID string, event hub.Event)
 	return m.sendFn(ctx, userID, event)
 }
 
+type mockOutbox struct {
+	enqueueFn func(ctx context.Context, task store.NotificationOutbox) error
+}
+
+func (m *mockOutbox) Enqueue(ctx context.Context, task store.NotificationOutbox) error {
+	return m.enqueueFn(ctx, task)
+}
+
 // --- helpers ---
 
 func noopNotifier() *mockNotifier {
 	return &mockNotifier{
 		sendFn: func(_ context.Context, _ string, _ hub.Event) bool { return false },
+	}
+}
+
+func noopOutbox() *mockOutbox {
+	return &mockOutbox{
+		enqueueFn: func(_ context.Context, _ store.NotificationOutbox) error { return nil },
 	}
 }
 
@@ -89,6 +108,7 @@ func TestSendMessage_EmptyBody(t *testing.T) {
 		&mockMessageRepo{},
 		&mockReceiptRepo{},
 		noopNotifier(),
+		noopOutbox(),
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
@@ -114,6 +134,7 @@ func TestSendMessage_ForbiddenDialog(t *testing.T) {
 		&mockMessageRepo{},
 		&mockReceiptRepo{},
 		noopNotifier(),
+		noopOutbox(),
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
@@ -153,6 +174,7 @@ func TestSendMessage_ReceiverOffline(t *testing.T) {
 				return false
 			},
 		},
+		noopOutbox(),
 	)
 
 	msg, err := svc.SendMessage(context.Background(), store.Message{
@@ -198,6 +220,7 @@ func TestSendMessage_ReceiverOnline(t *testing.T) {
 				return true
 			},
 		},
+		noopOutbox(),
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
@@ -248,6 +271,7 @@ func TestMarkRead_NotifiesSender(t *testing.T) {
 				return true
 			},
 		},
+		noopOutbox(),
 	)
 
 	if err := svc.MarkRead(context.Background(), "msg-1", "user-b", time.Now()); err != nil {
@@ -273,6 +297,7 @@ func TestListMessages_ForbiddenDialog(t *testing.T) {
 		&mockMessageRepo{},
 		&mockReceiptRepo{},
 		noopNotifier(),
+		noopOutbox(),
 	)
 
 	_, err := svc.ListMessages(context.Background(), "intruder", "d1", 10, nil)
@@ -301,6 +326,7 @@ func TestListMessages_Success(t *testing.T) {
 		},
 		&mockReceiptRepo{},
 		noopNotifier(),
+		noopOutbox(),
 	)
 
 	got, err := svc.ListMessages(context.Background(), "user-a", "d1", 10, nil)
@@ -324,6 +350,7 @@ func TestUnreadCount(t *testing.T) {
 			},
 		},
 		noopNotifier(),
+		noopOutbox(),
 	)
 
 	count, err := svc.UnreadCount(context.Background(), "user-a")
@@ -332,5 +359,143 @@ func TestUnreadCount(t *testing.T) {
 	}
 	if count != 5 {
 		t.Errorf("expected 5, got %d", count)
+	}
+}
+
+func TestSendMessage_ReceiverOffline_EnqueuesOutbox(t *testing.T) {
+	t.Parallel()
+
+	var enqueuedTask store.NotificationOutbox
+
+	svc := chat.NewService(
+		&mockDialogRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
+				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+			},
+		},
+		&mockMessageRepo{
+			createFn: func(_ context.Context, msg store.Message) (store.Message, error) {
+				msg.CreatedAt = time.Now()
+				return msg, nil
+			},
+		},
+		&mockReceiptRepo{
+			ensureFn: func(_ context.Context, _, _ string) error { return nil },
+			countUnreadFn: func(_ context.Context, _ string) (int, error) {
+				return 3, nil
+			},
+		},
+		&mockNotifier{
+			sendFn: func(_ context.Context, _ string, _ hub.Event) bool { return false },
+		},
+		&mockOutbox{
+			enqueueFn: func(_ context.Context, task store.NotificationOutbox) error {
+				enqueuedTask = task
+				return nil
+			},
+		},
+	)
+
+	_, err := svc.SendMessage(context.Background(), store.Message{
+		ID:       "msg-1",
+		DialogID: "d1",
+		SenderID: "user-a",
+		Body:     "hello outbox",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if enqueuedTask.ID == "" {
+		t.Fatal("expected outbox task to be enqueued, but it was not")
+	}
+	if enqueuedTask.EventType != "message_new" {
+		t.Errorf("expected event_type=message_new, got %q", enqueuedTask.EventType)
+	}
+	if enqueuedTask.UserID != "user-b" {
+		t.Errorf("expected task user_id=user-b (receiver), got %q", enqueuedTask.UserID)
+	}
+	expectedDedupKey := "message_new:msg-1:user-b"
+	if enqueuedTask.DedupKey != expectedDedupKey {
+		t.Errorf("expected dedup_key=%q, got %q", expectedDedupKey, enqueuedTask.DedupKey)
+	}
+	if len(enqueuedTask.Payload) == 0 {
+		t.Error("expected non-empty payload")
+	}
+}
+
+func TestSendMessage_ReceiverOnline_NoOutbox(t *testing.T) {
+	t.Parallel()
+
+	outboxCalled := false
+
+	svc := chat.NewService(
+		&mockDialogRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
+				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+			},
+		},
+		&mockMessageRepo{
+			createFn: func(_ context.Context, msg store.Message) (store.Message, error) {
+				msg.CreatedAt = time.Now()
+				return msg, nil
+			},
+		},
+		&mockReceiptRepo{
+			ensureFn: func(_ context.Context, _, _ string) error { return nil },
+		},
+		&mockNotifier{
+			sendFn: func(_ context.Context, _ string, _ hub.Event) bool { return true },
+		},
+		&mockOutbox{
+			enqueueFn: func(_ context.Context, _ store.NotificationOutbox) error {
+				outboxCalled = true
+				return nil
+			},
+		},
+	)
+
+	_, err := svc.SendMessage(context.Background(), store.Message{
+		ID:       "msg-1",
+		DialogID: "d1",
+		SenderID: "user-a",
+		Body:     "hello online",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if outboxCalled {
+		t.Error("outbox must NOT be called when receiver is online")
+	}
+}
+
+func TestBuildPreview_Truncates(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("а", 200)
+	got := chat.BuildPreview(long)
+	if len([]rune(got)) != 120 {
+		t.Errorf("expected 120 runes, got %d", len([]rune(got)))
+	}
+}
+
+func TestBuildPreview_NormalizesNewlines(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"hello\nworld", "hello world"},
+		{"hello\r\nworld", "hello world"},
+		{"hello\rworld", "hello world"},
+		{"no newlines", "no newlines"},
+	}
+
+	for _, c := range cases {
+		got := chat.BuildPreview(c.input)
+		if got != c.want {
+			t.Errorf("BuildPreview(%q) = %q, want %q", c.input, got, c.want)
+		}
 	}
 }

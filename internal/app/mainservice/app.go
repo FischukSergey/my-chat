@@ -80,10 +80,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	messageRepo := store.NewMessageRepository(postgresStore)
 	receiptRepo := store.NewReceiptRepository(postgresStore)
 	deviceRepo := store.NewDeviceRepository(postgresStore)
-	log.Info("инициализированы репозитории хранилища", slog.Int("repositories_count", 4))
+	outboxRepo := store.NewNotificationOutboxRepository(postgresStore)
+	log.Info("инициализированы репозитории хранилища", slog.Int("repositories_count", 5))
 
 	connHub := hub.New(log)
-	chatSvc := chatservice.NewService(dialogRepo, messageRepo, receiptRepo, connHub)
+	chatSvc := chatservice.NewService(dialogRepo, messageRepo, receiptRepo, connHub, outboxRepo)
 	deviceSvc := deviceservice.NewService(deviceRepo)
 	chatHandler := chathandler.New(chatSvc)
 	deviceHandler := devicehandler.New(deviceSvc)

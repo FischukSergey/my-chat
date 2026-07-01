@@ -80,7 +80,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(token) > 1024 {
-		respondError(w, http.StatusBadRequest, "invalid_argument", "push_token exceeds 1024 characters", map[string]string{"field": "push_token"})
+		respondError(w, http.StatusBadRequest, "invalid_argument",
+			"push_token exceeds 1024 characters", map[string]string{"field": "push_token"})
 		return
 	}
 
@@ -132,7 +133,8 @@ func (h *Handler) Unregister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(token) > 1024 {
-		respondError(w, http.StatusBadRequest, "invalid_argument", "push_token exceeds 1024 characters", map[string]string{"field": "push_token"})
+		respondError(w, http.StatusBadRequest, "invalid_argument",
+			"push_token exceeds 1024 characters", map[string]string{"field": "push_token"})
 		return
 	}
 

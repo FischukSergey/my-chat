@@ -42,10 +42,12 @@
 
 ## 5) Chat-service и outbox публикация
 
-- [ ] При `SendMessage` публиковать задачу в outbox, если получатель offline по WS.
-- [ ] Не публиковать push-задачу, если получатель online.
-- [ ] Включать в payload: `message_id`, `dialog_id`, `sender_id`, `preview`, `unread_count`.
-- [ ] Добавить unit-тесты offline/online веток публикации.
+- [x] При `SendMessage` публиковать задачу в outbox, если получатель offline по WS.
+- [x] Не публиковать push-задачу, если получатель online.
+- [x] Включать в payload: `message_id`, `dialog_id`, `sender_id`, `preview`, `unread_count`.
+- [x] Добавить unit-тесты offline/online веток публикации.
+
+Примечание: `outboxPublisher` интерфейс добавлен в `services/chat/service.go`. При `receiverOnline == false` вызывается `enqueueOutbox` — строит payload согласно `docs/api-sprint-2.md`, dedup_key: `message_new:<message_id>:<receiver_id>`. `BuildPreview` нормализует переносы строк и обрезает до 120 рун. Тесты: `TestSendMessage_ReceiverOffline_EnqueuesOutbox`, `TestSendMessage_ReceiverOnline_NoOutbox`, `TestBuildPreview_*`.
 
 ## 6) `notification-worker`
 
