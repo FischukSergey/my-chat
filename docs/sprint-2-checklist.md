@@ -32,11 +32,13 @@
 
 ## 4) API `main-service` (devices)
 
-- [ ] Реализовать `POST /api/v1/devices/register`.
-- [ ] Реализовать `POST /api/v1/devices/unregister`.
-- [ ] Добавить DTO и валидацию (`platform`, `push_token`).
-- [ ] Подключить auth middleware для новых ручек.
-- [ ] Описать ошибки в едином формате (`code`, `message`, `details`).
+- [x] Реализовать `POST /api/v1/devices/register`.
+- [x] Реализовать `POST /api/v1/devices/unregister`.
+- [x] Добавить DTO и валидацию (`platform`, `push_token`).
+- [x] Подключить auth middleware для новых ручек.
+- [x] Описать ошибки в едином формате (`code`, `message`, `details`).
+
+Примечание: `internal/handlers/device/handler.go`, `internal/services/device/service.go`. Маршруты зарегистрированы в auth-группе `app/mainservice/app.go`. Формат ошибок расширен полем `details` согласно `docs/api-sprint-2.md`.
 
 ## 5) Chat-service и outbox публикация
 
