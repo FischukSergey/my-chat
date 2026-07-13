@@ -6,6 +6,13 @@ log:
   format: text
   service_name: notification-worker
 
-servers:
-  client:
-    addr: localhost:38082
+database:
+  dsn: postgres://chat_service:chat_service@localhost:33432/chat_service?sslmode=disable
+  auto_migrate: false
+
+notification_worker:
+  poll_interval_seconds: 5
+  batch_size: 20
+  max_attempts: 5
+  backoff_base_seconds: 30
+  provider: dev-log

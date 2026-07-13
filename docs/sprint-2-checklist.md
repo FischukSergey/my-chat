@@ -51,14 +51,16 @@
 
 ## 6) `notification-worker`
 
-- [ ] Реализовать polling outbox (`pending/failed`, `next_attempt_at <= now`).
-- [ ] Реализовать обработку батчами.
-- [ ] Добавить abstraction push-provider.
-- [ ] Реализовать `dev-log` provider для local/dev.
-- [ ] Реализовать `noop/fake` provider для тестов.
-- [ ] Добавить retry policy (exponential backoff, max attempts).
-- [ ] Обновлять статусы outbox (`pending` -> `sent` / `failed`).
-- [ ] Логировать `push_attempt` в структурированном виде.
+- [x] Реализовать polling outbox (`pending/failed`, `next_attempt_at <= now`).
+- [x] Реализовать обработку батчами.
+- [x] Добавить abstraction push-provider.
+- [x] Реализовать `dev-log` provider для local/dev.
+- [x] Реализовать `noop/fake` provider для тестов.
+- [x] Добавить retry policy (exponential backoff, max attempts).
+- [x] Обновлять статусы outbox (`pending` -> `sent` / `failed`).
+- [x] Логировать `push_attempt` в структурированном виде.
+
+Примечание: push-provider abstraction — `internal/clients/push/` (`provider.go`, `devlog.go`, `noop.go`). Worker с poll-loop, retry/backoff и структурными логами — `internal/services/notification/worker.go`; unit-тесты — `internal/services/notification/worker_test.go`. Bootstrap с подключением к БД и выбором provider — `internal/app/notificationworker/app.go`. Конфигурация worker — `NotificationWorkerConfig` в `internal/config/config.go`; пример — `configs/config.notification-worker.local.example.yaml`. Валидация `JWTConfig` ослаблена до `omitempty`, обязательность проверяется вручную в `App.New` каждого сервиса.
 
 ## 7) Badge и realtime синхронизация
 
