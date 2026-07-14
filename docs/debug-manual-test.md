@@ -156,6 +156,101 @@ VALUES (
 
 ---
 
+---
+
+# Ручной сценарий проверки Sprint 2 — push & badge flow
+
+Сценарий: `register device → send message (offline) → worker sends push → read → badge_updated WS`.
+
+Дополнительное требование: запущен `notification-worker`.
+
+---
+
+## Sprint 2 — 0) Регистрация устройства (Device Register)
+
+### Вкладка B (получатель, пользователь 22222222-…)
+
+1. Убедитесь, что вы залогинены (токен сохранён).
+2. В разделе **4) Шорткаты → Device register**:
+   - **platform** — выберите `ios` (или `android` / `web`).
+   - **push_token** — введите `fake-push-token-local`.
+3. Нажмите **POST devices/register**.
+4. В логе появится `DEVICE register -> 201 {"device_id": "..."}`.
+
+---
+
+## Sprint 2 — 1) Отправка сообщения без активного WS (offline сценарий)
+
+### Вкладка B
+
+1. Отключите WS: нажмите **Отключить WS** (или закройте вкладку и откройте новую без подключения).
+
+### Вкладка A (отправитель)
+
+1. В **Send message** введите `dialog_id` и текст сообщения, нажмите **POST send message**.
+2. В логе вкладки A появится `SEND -> 201 {...}`.
+
+### Лог notification-worker (консоль)
+
+Так как вкладка B offline, в `main-service` создана запись в `notification_outbox`.  
+Через несколько секунд `notification-worker` обработает задачу:
+
+```
+INF processed outbox task task_id=... user_id=22222222-... platform=ios push_token=fake-push-token-local
+```
+
+(Точный формат зависит от реализации; при использовании `dev-log` provider строка выводится в stdout.)
+
+---
+
+## Sprint 2 — 2) Проверка badge_updated через WS
+
+### Вкладка B (снова подключитесь к WS)
+
+1. Нажмите **Подключить WS**.
+2. Прочитайте отправленное сообщение: **POST mark read**.
+3. В логе WS вкладки B **должно появиться** событие `badge_updated`:
+
+```json
+{
+  "event": "badge_updated",
+  "data": {
+    "user_id": "22222222-2222-2222-2222-222222222222",
+    "unread_count": 0,
+    "badge": 0,
+    "reason": "message_read"
+  },
+  "ts": "..."
+}
+```
+
+4. Параллельно в логе вкладки A появится `message_read`.
+
+---
+
+## Sprint 2 — 3) Удаление устройства (Device Unregister)
+
+### Вкладка B
+
+1. В разделе **4) Шорткаты → Device unregister** убедитесь, что `platform` и `push_token` заполнены теми же значениями.
+2. Нажмите **POST devices/unregister**.
+3. В логе появится `DEVICE unregister -> 204 (ok)`.
+
+---
+
+## Sprint 2 — Ожидаемый итог
+
+| Шаг | Вкладка | Ожидание |
+|-----|---------|----------|
+| Device register | B | `DEVICE register -> 201` в логе |
+| Send (B offline) | A | `SEND -> 201`; outbox-задача создана |
+| Worker отправляет push | — | строка в логах notification-worker |
+| WS reconnect + mark read | B | `badge_updated` в WS-логе |
+| message_read | A | WS-событие в логе |
+| Device unregister | B | `DEVICE unregister -> 204` |
+
+---
+
 ## Ожидаемый итог
 
 | Шаг | Вкладка | Ожидание |

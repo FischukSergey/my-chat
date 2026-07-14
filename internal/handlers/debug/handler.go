@@ -128,6 +128,27 @@ const pageHTML = `<!doctype html>
           <button id="scRead" style="margin-top:28px">POST mark read</button>
         </div>
       </div>
+      <div class="row" style="margin-top:8px">
+        <div>
+          <strong class="small">Device register</strong>
+          <label>platform
+            <select id="scDevicePlatform">
+              <option value="ios">ios</option>
+              <option value="android">android</option>
+              <option value="web">web</option>
+            </select>
+          </label>
+          <label>push_token
+            <input id="scDeviceToken" placeholder="fake-push-token-local" />
+          </label>
+          <button id="scDeviceRegister">POST devices/register</button>
+        </div>
+        <div>
+          <strong class="small">Device unregister</strong>
+          <p class="small" style="margin:6px 0">Использует platform и push_token из блока Register.</p>
+          <button id="scDeviceUnregister" style="margin-top:6px">POST devices/unregister</button>
+        </div>
+      </div>
     </section>
 
     <section class="card">
@@ -332,6 +353,43 @@ const pageHTML = `<!doctype html>
         log("UNREAD", "-> " + res.status + " " + JSON.stringify(data));
       } catch (err) {
         setStatus("unread error", true);
+        log("ERR", String(err));
+      }
+    };
+
+    $("scDeviceRegister").onclick = async () => {
+      const platform = $("scDevicePlatform").value;
+      const pushToken = $("scDeviceToken").value.trim();
+      if (!pushToken) { log("ERR", "push_token is empty"); return; }
+      try {
+        const res = await fetch(scBase() + "/api/v1/devices/register", {
+          method: "POST",
+          headers: scHeaders(),
+          body: JSON.stringify({ platform, push_token: pushToken }),
+        });
+        const data = await res.json();
+        setStatus("device register: " + res.status, !res.ok);
+        log("DEVICE", "register -> " + res.status + " " + JSON.stringify(data));
+      } catch (err) {
+        setStatus("device register error", true);
+        log("ERR", String(err));
+      }
+    };
+
+    $("scDeviceUnregister").onclick = async () => {
+      const platform = $("scDevicePlatform").value;
+      const pushToken = $("scDeviceToken").value.trim();
+      if (!pushToken) { log("ERR", "push_token is empty"); return; }
+      try {
+        const res = await fetch(scBase() + "/api/v1/devices/unregister", {
+          method: "POST",
+          headers: scHeaders(),
+          body: JSON.stringify({ platform, push_token: pushToken }),
+        });
+        setStatus("device unregister: " + res.status, !res.ok);
+        log("DEVICE", "unregister -> " + res.status + (res.status === 204 ? " (ok)" : ""));
+      } catch (err) {
+        setStatus("device unregister error", true);
         log("ERR", String(err));
       }
     };

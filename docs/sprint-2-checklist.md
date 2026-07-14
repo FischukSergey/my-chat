@@ -73,11 +73,13 @@
 
 ## 8) Debug UI и документация
 
-- [ ] Добавить в `/debug` шорткат `devices/register`.
-- [ ] Добавить в `/debug` шорткат `devices/unregister`.
-- [ ] Отобразить результат push/outbox сценария в debug-логе.
-- [ ] Обновить `docs/api-sprint-1.md` или вынести отдельный API-док для Sprint 2.
-- [ ] Обновить ручной сценарий проверки (`docs/debug-manual-test.md`) под push/badge flow.
+- [x] Добавить в `/debug` шорткат `devices/register`.
+- [x] Добавить в `/debug` шорткат `devices/unregister`.
+- [x] Отобразить результат push/outbox сценария в debug-логе.
+- [x] Обновить `docs/api-sprint-1.md` или вынести отдельный API-док для Sprint 2.
+- [x] Обновить ручной сценарий проверки (`docs/debug-manual-test.md`) под push/badge flow.
+
+Примечание: в `internal/handlers/debug/handler.go` добавлены шорткаты **Device register** и **Device unregister** (выбор платформы, ввод `push_token`, кнопки `POST devices/register` / `POST devices/unregister`). Результаты отображаются в JS-логе debug UI. В `docs/api-sprint-2.md` добавлен раздел §9 с описанием WS-события `badge_updated`. В `docs/debug-manual-test.md` добавлен сценарий Sprint 2 (register device → send offline → worker push → reconnect → mark read → badge_updated).
 
 ## 9) Локальная инфраструктура
 

@@ -11,6 +11,7 @@ vars:
   GOLANGCI_LINT_CACHE:
     sh: echo "$HOME/Library/Caches/golangci-lint"
   DOCKER_COMPOSE_CMD: "docker compose"
+  LOCAL_COMPOSE_FILE: "deploy/local/docker-compose.local.yml"
   TEST_COMPOSE_FILE: "deploy/test/docker-compose.test.yml"
   TEST_DATABASE_URL: "postgres://chat_service:chat_service@localhost:33433/chat_service_test?sslmode=disable"
 
@@ -89,16 +90,41 @@ tasks:
       - go build ./cmd/message-expirer
 
   local:up:
-    desc: Start local environment (postgres + main-service) via docker compose
+    desc: "Start local environment (all services) via docker compose"
     cmds:
-      - "{{.DOCKER_COMPOSE_CMD}} -f deploy/local/docker-compose.local.yml up -d --build"
+      - "{{.DOCKER_COMPOSE_CMD}} -f {{.LOCAL_COMPOSE_FILE}} up -d --build --wait"
 
   local:down:
-    desc: Stop local environment
+    desc: "Stop local environment (keep volumes)"
     cmds:
-      - "{{.DOCKER_COMPOSE_CMD}} -f deploy/local/docker-compose.local.yml down"
+      - "{{.DOCKER_COMPOSE_CMD}} -f {{.LOCAL_COMPOSE_FILE}} down"
+
+  local:down:clean:
+    desc: "Stop local environment and remove volumes (full reset)"
+    cmds:
+      - "{{.DOCKER_COMPOSE_CMD}} -f {{.LOCAL_COMPOSE_FILE}} down -v --remove-orphans"
+
+  local:build:
+    desc: "(Re)build docker images without starting"
+    cmds:
+      - "{{.DOCKER_COMPOSE_CMD}} -f {{.LOCAL_COMPOSE_FILE}} build"
+
+  local:restart:
+    desc: "Restart one or all services: task local:restart [-- <service>]"
+    cmds:
+      - "{{.DOCKER_COMPOSE_CMD}} -f {{.LOCAL_COMPOSE_FILE}} up -d --build --wait {{.CLI_ARGS}}"
+
+  local:ps:
+    desc: "Show status of local containers"
+    cmds:
+      - "{{.DOCKER_COMPOSE_CMD}} -f {{.LOCAL_COMPOSE_FILE}} ps"
 
   local:logs:
-    desc: Follow logs of local environment
+    desc: "Follow logs of all local services"
     cmds:
-      - "{{.DOCKER_COMPOSE_CMD}} -f deploy/local/docker-compose.local.yml logs -f"
+      - "{{.DOCKER_COMPOSE_CMD}} -f {{.LOCAL_COMPOSE_FILE}} logs -f"
+
+  local:logs:service:
+    desc: "Follow logs of a single service: task local:logs:service -- <service>"
+    cmds:
+      - "{{.DOCKER_COMPOSE_CMD}} -f {{.LOCAL_COMPOSE_FILE}} logs -f {{.CLI_ARGS}}"

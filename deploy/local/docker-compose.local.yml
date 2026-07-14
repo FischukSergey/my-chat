@@ -1,7 +1,15 @@
+name: my-chat
+
+x-labels: &common-labels
+  labels:
+    com.my-chat.project: my-chat
+    com.my-chat.env: local
+
 services:
   postgres:
     image: postgres:15-alpine
     container_name: my-chat-postgres-local
+    <<: *common-labels
     environment:
       POSTGRES_DB: chat_service
       POSTGRES_USER: chat_service
@@ -13,24 +21,54 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
 
   auth-proxy:
     build:
       context: ../../
       dockerfile: auth-proxy.Dockerfile
     container_name: my-chat-auth-proxy-local
+    <<: *common-labels
     command: ["-config", "configs/config.auth-proxy.docker.local.yaml"]
     ports:
       - "33081:33081"
+    restart: unless-stopped
 
   main-service:
     build:
       context: ../../
       dockerfile: prod.Dockerfile
     container_name: my-chat-main-service-local
+    <<: *common-labels
     command: ["-config", "configs/config.main-service.docker.local.yaml"]
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+
+  notification-worker:
+    build:
+      context: ../../
+      dockerfile: notification-worker.Dockerfile
+    container_name: my-chat-notification-worker-local
+    <<: *common-labels
+    command: ["-config", "configs/config.notification-worker.docker.local.yaml"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  message-expirer:
+    build:
+      context: ../../
+      dockerfile: message-expirer.Dockerfile
+    container_name: my-chat-message-expirer-local
+    <<: *common-labels
+    command: ["-config", "configs/config.message-expirer.docker.local.yaml"]
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
