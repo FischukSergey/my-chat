@@ -13,6 +13,8 @@ import (
 	"my-chat/internal/store"
 )
 
+const eventMessageRead = "message_read"
+
 // --- mock types ---
 
 type mockDialogRepo struct {
@@ -283,7 +285,7 @@ func TestMarkRead_NotifiesSender(t *testing.T) {
 	// Должно быть хотя бы одно событие message_read, адресованное отправителю.
 	var found bool
 	for _, e := range events {
-		if e.userID == "user-a" && e.name == "message_read" {
+		if e.userID == "user-a" && e.name == eventMessageRead {
 			found = true
 			break
 		}
@@ -553,7 +555,7 @@ func TestMarkRead_SendsBadgeUpdatedToReader(t *testing.T) {
 	}
 
 	// Первое событие — message_read отправителю.
-	if sent[0].event.Event != "message_read" {
+	if sent[0].event.Event != eventMessageRead {
 		t.Errorf("expected event[0]=message_read, got %q", sent[0].event.Event)
 	}
 	if sent[0].userID != "user-a" {
@@ -578,7 +580,7 @@ func TestMarkRead_SendsBadgeUpdatedToReader(t *testing.T) {
 	if data["badge"] != 2 {
 		t.Errorf("expected badge=2, got %v", data["badge"])
 	}
-	if data["reason"] != "message_read" {
+	if data["reason"] != eventMessageRead {
 		t.Errorf("expected reason=message_read, got %v", data["reason"])
 	}
 }
