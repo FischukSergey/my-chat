@@ -3,7 +3,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -27,13 +26,7 @@ func (r *NotificationOutboxRepository) Enqueue(ctx context.Context, task Notific
 		VALUES      ($1, $2, $3, $4, $5, 'pending', NOW(), NOW(), NOW())
 		ON CONFLICT (dedup_key) DO NOTHING`
 
-	payload, err := json.Marshal(task.Payload)
-	if err != nil {
-		return fmt.Errorf("marshal outbox payload: %w", err)
-	}
-
-	_, err = r.db.Exec(ctx, q, task.ID, task.EventType, task.UserID, payload, task.DedupKey)
-	if err != nil {
+	if _, err := r.db.Exec(ctx, q, task.ID, task.EventType, task.UserID, task.Payload, task.DedupKey); err != nil {
 		return fmt.Errorf("enqueue outbox task: %w", err)
 	}
 

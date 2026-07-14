@@ -83,10 +83,12 @@
 
 ## 9) Локальная инфраструктура
 
-- [ ] Добавить `notification-worker` в `deploy/local/docker-compose.local.yml`.
-- [ ] Добавить/проверить локальный конфиг `notification-worker`.
-- [ ] Проверить запуск окружения: `postgres + auth-proxy + main-service + notification-worker`.
-- [ ] Проверить базовый smoke e2e сценарий в local.
+- [x] Добавить `notification-worker` в `deploy/local/docker-compose.local.yml`.
+- [x] Добавить/проверить локальный конфиг `notification-worker`.
+- [x] Проверить запуск окружения: `postgres + auth-proxy + main-service + notification-worker`.
+- [x] Проверить базовый smoke e2e сценарий в local.
+
+Примечание: `task local:up` поднимает 5 контейнеров (postgres, auth-proxy, main-service, notification-worker, message-expirer), все переходят в `Healthy`. Исправлен баг двойного `json.Marshal` в `notification_outbox_repository.go:Enqueue` (payload хранился как base64-строка вместо JSON-объекта). Исправлены Dockerfile-ы: убран явный `GOARCH=amd64` (причина SIGSEGV в Go 1.24 + Docker Desktop for Mac с ядром &lt;5.11). Smoke e2e пройден: login → send → unread=1 → mark read → unread=0 → device register → send (outbox) → worker delivery (dev-log лог показывает `dev_push_sent`) → device unregister.
 
 ## 10) Тесты и качество
 
