@@ -250,7 +250,25 @@ func (s *Service) MarkRead(ctx context.Context, messageID, userID string, readAt
 		"read_at":    readAt.UTC().Format(time.RFC3339),
 	}))
 
+	s.sendBadgeUpdated(ctx, userID)
+
 	return nil
+}
+
+// sendBadgeUpdated пересчитывает unread и отправляет badge_updated читателю через WS.
+// Ошибки best-effort: сбой подсчёта не откатывает MarkRead.
+func (s *Service) sendBadgeUpdated(ctx context.Context, userID string) {
+	unreadCount, err := s.receipts.CountUnread(ctx, userID)
+	if err != nil {
+		return
+	}
+
+	s.notifier.Send(ctx, userID, hub.NewEvent("badge_updated", map[string]any{
+		"user_id":      userID,
+		"unread_count": unreadCount,
+		"badge":        unreadCount,
+		"reason":       "message_read",
+	}))
 }
 
 // UnreadCount возвращает количество непрочитанных сообщений пользователя.

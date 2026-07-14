@@ -165,6 +165,7 @@ func (w *Worker) processTask(ctx context.Context, task store.NotificationOutbox)
 			SenderID:    payload.SenderID,
 			Preview:     payload.Preview,
 			UnreadCount: payload.UnreadCount,
+			Badge:       payload.UnreadCount, // Sprint 2: badge == unread_count
 			DedupKey:    payload.DedupKey,
 		}
 		if err = w.provider.Send(ctx, msg); err != nil {

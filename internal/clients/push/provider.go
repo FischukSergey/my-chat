@@ -17,7 +17,10 @@ type Message struct {
 	SenderID    string
 	Preview     string
 	UnreadCount int
-	DedupKey    string
+	// Badge — число на иконке приложения. В Sprint 2 равно UnreadCount;
+	// выделено в отдельное поле для совместимости с APNs/FCM.
+	Badge    int
+	DedupKey string
 }
 
 // Provider описывает абстракцию push-провайдера.

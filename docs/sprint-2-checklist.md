@@ -64,10 +64,12 @@
 
 ## 7) Badge и realtime синхронизация
 
-- [ ] Зафиксировать backend как source of truth для unread/badge.
-- [ ] При `read` пересчитывать unread и отправлять `badge_updated` через WS.
-- [ ] При push включать актуальный `badge` в payload.
-- [ ] Проверить консистентность с `GET /api/v1/me/unread-count`.
+- [x] Зафиксировать backend как source of truth для unread/badge.
+- [x] При `read` пересчитывать unread и отправлять `badge_updated` через WS.
+- [x] При push включать актуальный `badge` в payload.
+- [x] Проверить консистентность с `GET /api/v1/me/unread-count`.
+
+Примечание: `MarkRead` в `internal/services/chat/service.go` после записи в БД вызывает `CountUnread` и отправляет читателю `badge_updated` (формат по `docs/api-sprint-2.md` §7) — best-effort, сбой подсчёта не откатывает `MarkRead`. В `internal/clients/push/provider.go` добавлено явное поле `Badge int` (равно `UnreadCount` в Sprint 2); заполняется в `internal/services/notification/worker.go` и логируется в `internal/clients/push/devlog.go`. Тест `TestMarkRead_SendsBadgeUpdatedToReader` и обновлённый `TestMarkRead_NotifiesSender` — в `internal/services/chat/service_test.go`.
 
 ## 8) Debug UI и документация
 

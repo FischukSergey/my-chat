@@ -246,8 +246,11 @@ func TestSendMessage_ReceiverOnline(t *testing.T) {
 func TestMarkRead_NotifiesSender(t *testing.T) {
 	t.Parallel()
 
-	var notifiedUserID string
-	var notifiedEventName string
+	type sentEvent struct {
+		userID string
+		name   string
+	}
+	var events []sentEvent
 
 	svc := chat.NewService(
 		&mockDialogRepo{},
@@ -266,8 +269,7 @@ func TestMarkRead_NotifiesSender(t *testing.T) {
 		},
 		&mockNotifier{
 			sendFn: func(_ context.Context, userID string, event hub.Event) bool {
-				notifiedUserID = userID
-				notifiedEventName = event.Event
+				events = append(events, sentEvent{userID: userID, name: event.Event})
 				return true
 			},
 		},
@@ -277,11 +279,17 @@ func TestMarkRead_NotifiesSender(t *testing.T) {
 	if err := svc.MarkRead(context.Background(), "msg-1", "user-b", time.Now()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if notifiedUserID != "user-a" {
-		t.Errorf("expected notification to sender user-a, got %q", notifiedUserID)
+
+	// Должно быть хотя бы одно событие message_read, адресованное отправителю.
+	var found bool
+	for _, e := range events {
+		if e.userID == "user-a" && e.name == "message_read" {
+			found = true
+			break
+		}
 	}
-	if notifiedEventName != "message_read" {
-		t.Errorf("expected event message_read, got %q", notifiedEventName)
+	if !found {
+		t.Errorf("expected message_read sent to sender user-a, got events: %v", events)
 	}
 }
 
@@ -497,5 +505,80 @@ func TestBuildPreview_NormalizesNewlines(t *testing.T) {
 		if got != c.want {
 			t.Errorf("BuildPreview(%q) = %q, want %q", c.input, got, c.want)
 		}
+	}
+}
+
+func TestMarkRead_SendsBadgeUpdatedToReader(t *testing.T) {
+	t.Parallel()
+
+	type sentEvent struct {
+		userID string
+		event  hub.Event
+	}
+	var sent []sentEvent
+
+	svc := chat.NewService(
+		&mockDialogRepo{},
+		&mockMessageRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
+				return store.Message{
+					ID:       "msg-1",
+					DialogID: "d1",
+					SenderID: "user-a",
+					Body:     "hello",
+				}, nil
+			},
+		},
+		&mockReceiptRepo{
+			markReadFn: func(_ context.Context, _, _ string, _ time.Time) error { return nil },
+			countUnreadFn: func(_ context.Context, _ string) (int, error) {
+				return 2, nil
+			},
+		},
+		&mockNotifier{
+			sendFn: func(_ context.Context, userID string, event hub.Event) bool {
+				sent = append(sent, sentEvent{userID: userID, event: event})
+				return true
+			},
+		},
+		noopOutbox(),
+	)
+
+	if err := svc.MarkRead(context.Background(), "msg-1", "user-b", time.Now()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(sent) != 2 {
+		t.Fatalf("expected 2 events (message_read + badge_updated), got %d", len(sent))
+	}
+
+	// Первое событие — message_read отправителю.
+	if sent[0].event.Event != "message_read" {
+		t.Errorf("expected event[0]=message_read, got %q", sent[0].event.Event)
+	}
+	if sent[0].userID != "user-a" {
+		t.Errorf("expected message_read sent to sender user-a, got %q", sent[0].userID)
+	}
+
+	// Второе событие — badge_updated читателю.
+	if sent[1].event.Event != "badge_updated" {
+		t.Errorf("expected event[1]=badge_updated, got %q", sent[1].event.Event)
+	}
+	if sent[1].userID != "user-b" {
+		t.Errorf("expected badge_updated sent to reader user-b, got %q", sent[1].userID)
+	}
+
+	data, ok := sent[1].event.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("badge_updated data is not map[string]any: %T", sent[1].event.Data)
+	}
+	if data["unread_count"] != 2 {
+		t.Errorf("expected unread_count=2, got %v", data["unread_count"])
+	}
+	if data["badge"] != 2 {
+		t.Errorf("expected badge=2, got %v", data["badge"])
+	}
+	if data["reason"] != "message_read" {
+		t.Errorf("expected reason=message_read, got %v", data["reason"])
 	}
 }
