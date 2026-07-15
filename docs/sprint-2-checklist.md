@@ -106,15 +106,45 @@
 
 ## 11) Критерии готовности (DoD)
 
-- [ ] Устройство регистрируется/отключается через API.
-- [ ] Для offline получателя создается outbox-задача.
-- [ ] `notification-worker` обрабатывает outbox и завершает отправку.
-- [ ] Badge и unread не расходятся после `read`.
-- [ ] Debug-сценарий push/badge воспроизводим вручную.
-- [ ] Документация Sprint 2 актуализирована.
+- [x] Устройство регистрируется/отключается через API.
+- [x] Для offline получателя создается outbox-задача.
+- [x] `notification-worker` обрабатывает outbox и завершает отправку.
+- [x] Badge и unread не расходятся после `read`.
+- [x] Debug-сценарий push/badge воспроизводим вручную.
+- [x] Документация Sprint 2 актуализирована.
 
 ## 12) Демо
 
-- [ ] Подготовить тестовых пользователей и device token в local.
-- [ ] Запустить демонстрацию `send while offline -> outbox -> push -> badge_updated`.
-- [ ] Зафиксировать known limitations Sprint 2.
+- [x] Подготовить тестовых пользователей и device token в local.
+- [x] Запустить демонстрацию `send while offline -> outbox -> push -> badge_updated`.
+- [x] Зафиксировать known limitations Sprint 2.
+
+**Результат демо** (запуск 2026-07-15):
+
+| Шаг | Ожидание | Факт |
+|-----|----------|------|
+| A отправляет сообщение, B offline | HTTP 200 + задача в `notification_outbox` со статусом `pending` | ✅ |
+| `notification-worker` забирает задачу | Лог `dev_push_sent` + `push_attempt status=sent` | ✅ |
+| Задача в БД | `status=sent`, `attempt=1` | ✅ |
+| B читает сообщение | HTTP 204, `unread_count` уменьшился | ✅ |
+| Очистка: unregister device | HTTP 204 | ✅ |
+
+**Known Limitations Sprint 2:**
+
+1. **dev-log push provider** — реальные APNs/FCM не подключены; «доставка» фиксируется только в логах сервера. Для production нужен провайдер `apns` или `fcm`.
+
+2. **`badge_updated` WS-событие** — best-effort: если получатель не подключён к WebSocket в момент `mark_read`, событие теряется (нет очереди повторной доставки).
+
+3. **`message-expirer`** — заглушка (placeholder), фактическая логика истечения сообщений в Sprint 2 не реализована.
+
+4. **Устаревшее значение badge в push** — `unread_count` рассчитывается в момент постановки задачи в outbox, а не в момент отправки push. Если между enqueue и delivery придут новые сообщения, badge в пуше может быть занижен.
+
+5. **`notification_outbox` не очищается** — задачи со статусом `sent` накапливаются бесконечно; механизма архивации/purge нет.
+
+6. **Polling interval = 5 сек** — возможна задержка до 5 секунд между отправкой сообщения и доставкой push.
+
+7. **Отсутствует silent push при badge-only обновлении** — если пользователь читает сообщение на одном устройстве, значок на другом устройстве не обновится автоматически.
+
+8. **Device register возвращает HTTP 200 вместо 201** — minor несоответствие REST-конвенции (без последствий для клиентов).
+
+**Sprint 2 — DONE ✅**
