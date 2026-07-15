@@ -92,15 +92,17 @@
 
 ## 10) Тесты и качество
 
-- [ ] Unit-тесты на Device API handlers.
-- [ ] Unit-тесты на outbox publisher.
-- [ ] Unit-тесты retry/backoff логики worker.
-- [ ] Integration-тест: offline recipient -> outbox task created.
-- [ ] Integration-тест: worker обрабатывает outbox и помечает задачу `sent`.
-- [ ] Integration-тест: `read` синхронизирует unread/badge.
-- [ ] Проверить `task fmt`.
-- [ ] Проверить `task lint`.
-- [ ] Проверить `task test`.
+- [x] Unit-тесты на Device API handlers.
+- [x] Unit-тесты на outbox publisher.
+- [x] Unit-тесты retry/backoff логики worker.
+- [x] Integration-тест: offline recipient -> outbox task created.
+- [x] Integration-тест: worker обрабатывает outbox и помечает задачу `sent`.
+- [x] Integration-тест: `read` синхронизирует unread/badge.
+- [x] Проверить `task fmt`.
+- [x] Проверить `task lint`.
+- [x] Проверить `task test`.
+
+Примечание: добавлены `internal/handlers/device/handler_test.go` (13 unit-тестов — Register/Unregister: success, 401, bad JSON, invalid platform, empty/long token, service error). Добавлена публичная утилита `middleware.ContextWithUserID` для инжекции userID в тестах. В `internal/services/chat/integration_test.go` добавлены `TestIntegration_OfflineRecipient_OutboxTaskCreated` (проверяет, что задача попадает в БД) и `TestIntegration_ReadSynchronizesUnreadBadge` (3 сообщения → unread=3 → mark read одного → unread=2, идемпотентность). Добавлен `internal/services/notification/integration_test.go` с `TestIntegration_WorkerProcessesOutbox_MarksSent` и `TestIntegration_WorkerProcessesOutbox_NoDevices_MarksSent`. Исправлен `store/migrate.go`: добавлена защита от параллельного запуска через `pg_advisory_lock`. Все тесты (unit + integration) зелёные, lint — 0 issues.
 
 ## 11) Критерии готовности (DoD)
 

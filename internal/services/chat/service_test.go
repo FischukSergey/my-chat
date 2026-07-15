@@ -13,7 +13,10 @@ import (
 	"my-chat/internal/store"
 )
 
-const eventMessageRead = "message_read"
+const (
+	eventMessageRead = "message_read"
+	eventMessageNew  = "message_new"
+)
 
 // --- mock types ---
 
@@ -237,7 +240,7 @@ func TestSendMessage_ReceiverOnline(t *testing.T) {
 	if len(eventNames) != 2 {
 		t.Fatalf("expected 2 events, got %d: %v", len(eventNames), eventNames)
 	}
-	if eventNames[0] != "message_new" {
+	if eventNames[0] != eventMessageNew {
 		t.Errorf("expected event[0]=message_new, got %q", eventNames[0])
 	}
 	if eventNames[1] != "message_delivered" {
@@ -419,7 +422,7 @@ func TestSendMessage_ReceiverOffline_EnqueuesOutbox(t *testing.T) {
 	if enqueuedTask.ID == "" {
 		t.Fatal("expected outbox task to be enqueued, but it was not")
 	}
-	if enqueuedTask.EventType != "message_new" {
+	if enqueuedTask.EventType != eventMessageNew {
 		t.Errorf("expected event_type=message_new, got %q", enqueuedTask.EventType)
 	}
 	if enqueuedTask.UserID != "user-b" {
