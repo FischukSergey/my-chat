@@ -4,30 +4,36 @@
 
 ## 1) Подготовка и контракты
 
-- [ ] Утвердить модель `auth_sessions` (поля, индексы, family_id).
-- [ ] Утвердить стратегию refresh: JWT + server-side hash validation.
-- [ ] Утвердить правила rotation (invalidate old on refresh).
-- [ ] Утвердить правила reuse detection (revoke family → `session_compromised`).
-- [ ] Утвердить расширение JWT claims (`session_id`).
-- [ ] Утвердить scope мобильного клиента (Capacitor в `mobile/`).
+- [x] Утвердить модель `auth_sessions` (поля, индексы, family_id).
+- [x] Утвердить стратегию refresh: JWT + server-side hash validation.
+- [x] Утвердить правила rotation (invalidate old on refresh).
+- [x] Утвердить правила reuse detection (revoke family → `session_compromised`).
+- [x] Утвердить расширение JWT claims (`session_id`).
+- [x] Утвердить scope мобильного клиента (Capacitor в `mobile/`).
 - [x] Подготовить `docs/api-sprint-3.md` с обновлёнными auth-контрактами.
+
+Примечание: все решения зафиксированы в `docs/api-sprint-3.md` (§1, §5, §6, §7, §8, §11) и `docs/sprint-3-plan.md` (§4).
 
 ## 2) База данных и миграции
 
-- [ ] Создать миграцию `internal/store/migrations/007_auth_sessions.sql`.
-- [ ] Добавить индексы: `token_hash` (unique), `user_id + revoked_at`, `family_id`.
-- [ ] Добавить модель `AuthSession` в `internal/store/models.go`.
-- [ ] Проверить миграции на чистой БД и при повторном запуске.
+- [x] Создать миграцию `internal/store/migrations/007_auth_sessions.sql`.
+- [x] Добавить индексы: `token_hash` (unique), `user_id + revoked_at`, `family_id`.
+- [x] Добавить модель `AuthSession` в `internal/store/models.go`.
+- [x] Проверить миграции на чистой БД и при повторном запуске.
+
+Примечание: таблица `auth_sessions` создана с FK на `users`, `devices`, самоссылка `rotated_from`. Идемпотентность проверена повторным прогоном (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS` — NOTICE без ошибок). `go build ./internal/store/...` — OK.
 
 ## 3) Репозитории и store-слой
 
-- [ ] Реализовать `AuthSessionRepository.CreateSession`.
-- [ ] Реализовать `AuthSessionRepository.FindByTokenHash`.
-- [ ] Реализовать `AuthSessionRepository.RevokeSession`.
-- [ ] Реализовать `AuthSessionRepository.RevokeFamily`.
-- [ ] Реализовать `AuthSessionRepository.RevokeAllForUser` (опционально).
-- [ ] Реализовать `AuthSessionRepository.RotateSession` (транзакция revoke + insert).
-- [ ] Добавить unit/integration тесты репозитория.
+- [x] Реализовать `AuthSessionRepository.CreateSession`.
+- [x] Реализовать `AuthSessionRepository.FindByTokenHash`.
+- [x] Реализовать `AuthSessionRepository.RevokeSession`.
+- [x] Реализовать `AuthSessionRepository.RevokeFamily`.
+- [x] Реализовать `AuthSessionRepository.RevokeAllForUser` (опционально).
+- [x] Реализовать `AuthSessionRepository.RotateSession` (транзакция revoke + insert).
+- [x] Добавить unit/integration тесты репозитория.
+
+Примечание: реализован `internal/store/auth_session_repository.go` с методами `Create`, `FindByTokenHash`, `RevokeSession` (идемпотентный), `RevokeFamily`, `RevokeAllForUser`, `RotateSession` (транзакция). Добавлен `ErrSessionNotFound` и методы `IsRevoked()`/`IsExpired()` на модели. Integration-тесты — `auth_session_repository_integration_test.go`, 8 тестов, все PASS. Lint — 0 issues.
 
 ## 4) JWT
 
