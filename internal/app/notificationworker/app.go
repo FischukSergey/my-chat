@@ -3,42 +3,148 @@ package notificationworker
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"time"
 
+	"my-chat/internal/clients/push"
 	"my-chat/internal/config"
 	"my-chat/internal/logger"
+	"my-chat/internal/services/notification"
+	"my-chat/internal/store"
 )
 
-// App инкапсулирует bootstrap для сервиса notification-worker.
+const (
+	defaultPollInterval = 5 * time.Second
+	defaultBatchSize    = 20
+	defaultMaxAttempts  = 5
+	defaultBackoffBase  = 30 * time.Second
+	defaultProvider     = "dev-log"
+)
+
+// App инкапсулирует зависимости и жизненный цикл notification-worker.
 type App struct {
-	logger *slog.Logger
-	env    string
+	log    *slog.Logger
+	store  *store.Store
+	worker *notification.Worker
+	cfg    config.Config
 }
 
-// New создает bootstrap для сервиса notification-worker.
-func New(cfg config.Config) *App {
-	app := &App{
-		logger: logger.NewLogger(cfg.Log),
-		env:    cfg.Global.Env,
+// New создаёт и инициализирует App.
+func New(ctx context.Context, cfg config.Config) (*App, error) {
+	if !cfg.Database.IsConfigured() {
+		return nil, errors.New("database.dsn is required for notification-worker")
 	}
 
-	app.logger.Info("инициализация notification-worker", slog.String("env", app.env))
+	log := logger.NewLogger(cfg.Log)
+	log.Info(
+		"инициализация notification-worker",
+		slog.String("env", cfg.Global.Env),
+		slog.Bool("auto_migrate", cfg.Database.AutoMigrate),
+	)
 
-	return app
+	log.Info("подключение к PostgreSQL")
+	postgresStore, err := store.New(ctx, cfg.Database.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("init store: %w", err)
+	}
+	log.Info("подключение к PostgreSQL успешно")
+
+	if cfg.Database.AutoMigrate {
+		log.Info("запуск миграций БД")
+		report, migErr := postgresStore.Migrate(ctx)
+		if migErr != nil {
+			postgresStore.Close()
+			return nil, fmt.Errorf("run migrations: %w", migErr)
+		}
+		log.Info("миграции БД применены",
+			slog.Int("count", len(report.Applied)),
+			slog.Any("migrations", report.Applied),
+		)
+	}
+
+	outboxRepo := store.NewNotificationOutboxRepository(postgresStore)
+	deviceRepo := store.NewDeviceRepository(postgresStore)
+
+	provider := buildProvider(cfg.NotificationWorker.Provider, log)
+	workerCfg := buildWorkerConfig(cfg.NotificationWorker)
+
+	log.Info("конфигурация worker",
+		slog.String("provider", provider.Name()),
+		slog.Int("batch_size", workerCfg.BatchSize),
+		slog.Int("max_attempts", workerCfg.MaxAttempts),
+		slog.Duration("backoff_base", workerCfg.BackoffBase),
+	)
+
+	w := notification.NewWorker(outboxRepo, deviceRepo, provider, log, workerCfg)
+
+	return &App{
+		log:    log,
+		store:  postgresStore,
+		worker: w,
+		cfg:    cfg,
+	}, nil
 }
 
-// Run запускает сервис и завершает его по отмене контекста.
+// Run запускает worker и ждёт отмены контекста.
 func (a *App) Run(ctx context.Context) error {
-	a.logger.Info("запуск сервиса", slog.String("service", "notification-worker"), slog.String("env", a.env))
-	a.logger.Info("notification-worker готов к обработке задач")
-	<-ctx.Done()
+	defer func() {
+		a.store.Close()
+		a.log.Info("подключение к PostgreSQL закрыто")
+	}()
 
+	pollInterval := pollIntervalFromCfg(a.cfg.NotificationWorker.PollIntervalSeconds)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.worker.Run(ctx, pollInterval)
+	}()
+
+	<-ctx.Done()
 	cause := context.Cause(ctx)
 	if cause == nil {
 		cause = context.Canceled
 	}
+	a.log.Info("получен сигнал остановки notification-worker", slog.String("cause", cause.Error()))
 
-	a.logger.Info("остановка сервиса", slog.String("service", "notification-worker"), slog.String("cause", cause.Error()))
+	<-done
+	a.log.Info("notification-worker остановлен")
 
 	return nil
+}
+
+func buildProvider(name string, log *slog.Logger) push.Provider {
+	switch name {
+	case "noop":
+		return push.NewNoopProvider()
+	default:
+		return push.NewDevLogProvider(log)
+	}
+}
+
+func buildWorkerConfig(cfg config.NotificationWorkerConfig) notification.Config {
+	wCfg := notification.Config{
+		BatchSize:   defaultBatchSize,
+		MaxAttempts: defaultMaxAttempts,
+		BackoffBase: defaultBackoffBase,
+	}
+	if cfg.BatchSize > 0 {
+		wCfg.BatchSize = cfg.BatchSize
+	}
+	if cfg.MaxAttempts > 0 {
+		wCfg.MaxAttempts = cfg.MaxAttempts
+	}
+	if cfg.BackoffBaseSeconds > 0 {
+		wCfg.BackoffBase = time.Duration(cfg.BackoffBaseSeconds) * time.Second
+	}
+	return wCfg
+}
+
+func pollIntervalFromCfg(seconds int) time.Duration {
+	if seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	return defaultPollInterval
 }

@@ -24,10 +24,16 @@ func main() {
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	application := notificationworker.New(cfg)
-	if err = application.Run(ctx); err != nil {
-		log.Printf("run app: %v", err)
+
+	application, err := notificationworker.New(ctx, cfg)
+	if err != nil {
 		stop()
+		log.Fatalf("init app: %v", err)
+	}
+
+	if err = application.Run(ctx); err != nil {
+		stop()
+		log.Printf("run app: %v", err)
 		os.Exit(1)
 	}
 

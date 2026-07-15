@@ -3,11 +3,12 @@ package config
 
 // Config хранит конфигурацию приложения.
 type Config struct {
-	Global   GlobalConfig   `yaml:"global"`
-	Log      LogConfig      `yaml:"log"`
-	Servers  ServersConfig  `yaml:"servers"`
-	Database DatabaseConfig `yaml:"database"`
-	JWT      JWTConfig      `yaml:"jwt"`
+	Global             GlobalConfig             `yaml:"global"`
+	Log                LogConfig                `yaml:"log"`
+	Servers            ServersConfig            `yaml:"servers"`
+	Database           DatabaseConfig           `yaml:"database"`
+	JWT                JWTConfig                `yaml:"jwt"`
+	NotificationWorker NotificationWorkerConfig `yaml:"notification_worker"`
 }
 
 // GlobalConfig хранит глобальные параметры окружения.
@@ -49,13 +50,24 @@ func (d DatabaseConfig) IsConfigured() bool {
 }
 
 // JWTConfig хранит параметры для подписи и валидации JWT.
+// Поля необязательны глобально — обязательность проверяется вручную через IsConfigured() в каждом App.New.
 type JWTConfig struct {
-	Secret          string `yaml:"secret" validate:"required"`
-	AccessTokenTTL  int    `yaml:"access_token_ttl_seconds" validate:"required,min=60"`
-	RefreshTokenTTL int    `yaml:"refresh_token_ttl_seconds" validate:"required,min=60"`
+	Secret          string `yaml:"secret"`
+	AccessTokenTTL  int    `yaml:"access_token_ttl_seconds" validate:"omitempty,min=60"`
+	RefreshTokenTTL int    `yaml:"refresh_token_ttl_seconds" validate:"omitempty,min=60"`
 }
 
 // IsConfigured проверяет, задан ли секрет.
 func (j JWTConfig) IsConfigured() bool {
 	return j.Secret != ""
+}
+
+// NotificationWorkerConfig хранит параметры notification-worker.
+// Нулевые значения означают использование дефолтов в App.New.
+type NotificationWorkerConfig struct {
+	PollIntervalSeconds int    `yaml:"poll_interval_seconds" validate:"omitempty,min=1"`
+	BatchSize           int    `yaml:"batch_size" validate:"omitempty,min=1"`
+	MaxAttempts         int    `yaml:"max_attempts" validate:"omitempty,min=1"`
+	BackoffBaseSeconds  int    `yaml:"backoff_base_seconds" validate:"omitempty,min=1"`
+	Provider            string `yaml:"provider" validate:"omitempty,oneof=dev-log noop"`
 }

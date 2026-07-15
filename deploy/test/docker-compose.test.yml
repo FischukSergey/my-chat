@@ -1,0 +1,17 @@
+services:
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: my-chat-postgres-test
+    environment:
+      POSTGRES_DB: chat_service_test
+      POSTGRES_USER: chat_service
+      POSTGRES_PASSWORD: chat_service
+    ports:
+      - "33433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chat_service -d chat_service_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15

@@ -3,10 +3,14 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
 
 	"my-chat/internal/hub"
 	"my-chat/internal/store"
@@ -19,12 +23,17 @@ var (
 	ErrInvalidMessageBody = errors.New("message body is empty")
 )
 
+const (
+	previewMaxRunes = 120
+)
+
 // Service оркестрирует операции над сообщениями и receipt-статусами.
 type Service struct {
 	dialogs  dialogRepository
 	messages messageRepository
 	receipts receiptRepository
 	notifier notifier
+	outbox   outboxPublisher
 }
 
 type dialogRepository interface {
@@ -47,18 +56,24 @@ type notifier interface {
 	Send(ctx context.Context, userID string, event hub.Event) bool
 }
 
+type outboxPublisher interface {
+	Enqueue(ctx context.Context, task store.NotificationOutbox) error
+}
+
 // NewService создает сервис чата.
 func NewService(
 	dialogs dialogRepository,
 	messages messageRepository,
 	receipts receiptRepository,
 	n notifier,
+	outbox outboxPublisher,
 ) *Service {
 	return &Service{
 		dialogs:  dialogs,
 		messages: messages,
 		receipts: receipts,
 		notifier: n,
+		outbox:   outbox,
 	}
 }
 
@@ -103,6 +118,7 @@ func (s *Service) notifyNewMessage(ctx context.Context, msg store.Message, recei
 
 	receiverOnline := s.notifier.Send(ctx, receiverID, newEvent)
 	if !receiverOnline {
+		s.enqueueOutbox(ctx, msg, receiverID)
 		return
 	}
 
@@ -113,6 +129,74 @@ func (s *Service) notifyNewMessage(ctx context.Context, msg store.Message, recei
 		"user_id":      receiverID,
 		"delivered_at": deliveredAt.Format(time.RFC3339),
 	}))
+}
+
+// enqueueOutbox публикует push-задачу в outbox для offline-получателя.
+// Ошибки не возвращаются — операция best-effort; при сбое push не дойдёт,
+// но сообщение уже сохранено.
+func (s *Service) enqueueOutbox(ctx context.Context, msg store.Message, receiverID string) {
+	unreadCount, err := s.receipts.CountUnread(ctx, receiverID)
+	if err != nil {
+		return
+	}
+
+	dedupKey := fmt.Sprintf("message_new:%s:%s", msg.ID, receiverID)
+
+	type outboxPayload struct {
+		EventType   string `json:"event_type"`
+		UserID      string `json:"user_id"`
+		MessageID   string `json:"message_id"`
+		DialogID    string `json:"dialog_id"`
+		SenderID    string `json:"sender_id"`
+		Preview     string `json:"preview"`
+		UnreadCount int    `json:"unread_count"`
+		CreatedAt   string `json:"created_at"`
+		DedupKey    string `json:"dedup_key"`
+	}
+
+	payloadBytes, err := json.Marshal(outboxPayload{
+		EventType:   "message_new",
+		UserID:      receiverID,
+		MessageID:   msg.ID,
+		DialogID:    msg.DialogID,
+		SenderID:    msg.SenderID,
+		Preview:     buildPreview(msg.Body),
+		UnreadCount: unreadCount,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+		DedupKey:    dedupKey,
+	})
+	if err != nil {
+		return
+	}
+
+	task := store.NotificationOutbox{
+		ID:        uuid.NewString(),
+		EventType: "message_new",
+		UserID:    receiverID,
+		Payload:   payloadBytes,
+		DedupKey:  dedupKey,
+	}
+
+	_ = s.outbox.Enqueue(ctx, task)
+}
+
+// BuildPreview обрезает текст до previewMaxRunes рун и нормализует переносы строк.
+func BuildPreview(body string) string {
+	return buildPreview(body)
+}
+
+// buildPreview — внутренняя реализация.
+func buildPreview(body string) string {
+	body = strings.ReplaceAll(body, "\r\n", " ")
+	body = strings.ReplaceAll(body, "\n", " ")
+	body = strings.ReplaceAll(body, "\r", " ")
+
+	if utf8.RuneCountInString(body) <= previewMaxRunes {
+		return body
+	}
+
+	runes := []rune(body)
+	return string(runes[:previewMaxRunes])
 }
 
 // ListMessages возвращает историю сообщений диалога.
@@ -166,7 +250,25 @@ func (s *Service) MarkRead(ctx context.Context, messageID, userID string, readAt
 		"read_at":    readAt.UTC().Format(time.RFC3339),
 	}))
 
+	s.sendBadgeUpdated(ctx, userID)
+
 	return nil
+}
+
+// sendBadgeUpdated пересчитывает unread и отправляет badge_updated читателю через WS.
+// Ошибки best-effort: сбой подсчёта не откатывает MarkRead.
+func (s *Service) sendBadgeUpdated(ctx context.Context, userID string) {
+	unreadCount, err := s.receipts.CountUnread(ctx, userID)
+	if err != nil {
+		return
+	}
+
+	s.notifier.Send(ctx, userID, hub.NewEvent("badge_updated", map[string]any{
+		"user_id":      userID,
+		"unread_count": unreadCount,
+		"badge":        unreadCount,
+		"reason":       "message_read",
+	}))
 }
 
 // UnreadCount возвращает количество непрочитанных сообщений пользователя.

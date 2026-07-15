@@ -5,12 +5,11 @@ COPY go.mod go.sum* ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -o auth-proxy ./cmd/auth-proxy
+RUN CGO_ENABLED=0 go build -o message-expirer ./cmd/message-expirer
 
 FROM alpine:3.20
 WORKDIR /app
-COPY --from=builder /app/auth-proxy /app/auth-proxy
+COPY --from=builder /app/message-expirer /app/message-expirer
 COPY --from=builder /app/configs /app/configs
 
-EXPOSE 33081
-ENTRYPOINT ["/app/auth-proxy"]
+ENTRYPOINT ["/app/message-expirer"]

@@ -7,7 +7,7 @@ log:
   service_name: notification-worker
 
 database:
-  dsn: postgres://chat_service:chat_service@localhost:33432/chat_service?sslmode=disable
+  dsn: postgres://chat_service:chat_service@postgres:5432/chat_service?sslmode=disable
   auto_migrate: false
 
 notification_worker:

@@ -14,12 +14,14 @@ import (
 	"my-chat/internal/config"
 	chathandler "my-chat/internal/handlers/chat"
 	debughandler "my-chat/internal/handlers/debug"
+	devicehandler "my-chat/internal/handlers/device"
 	"my-chat/internal/handlers/health"
 	wshandler "my-chat/internal/handlers/ws"
 	"my-chat/internal/hub"
 	"my-chat/internal/logger"
 	mw "my-chat/internal/middleware"
 	chatservice "my-chat/internal/services/chat"
+	deviceservice "my-chat/internal/services/device"
 	"my-chat/internal/store"
 )
 
@@ -77,11 +79,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	dialogRepo := store.NewDialogRepository(postgresStore)
 	messageRepo := store.NewMessageRepository(postgresStore)
 	receiptRepo := store.NewReceiptRepository(postgresStore)
-	log.Info("инициализированы репозитории хранилища", slog.Int("repositories_count", 3))
+	deviceRepo := store.NewDeviceRepository(postgresStore)
+	outboxRepo := store.NewNotificationOutboxRepository(postgresStore)
+	log.Info("инициализированы репозитории хранилища", slog.Int("repositories_count", 5))
 
 	connHub := hub.New(log)
-	chatSvc := chatservice.NewService(dialogRepo, messageRepo, receiptRepo, connHub)
+	chatSvc := chatservice.NewService(dialogRepo, messageRepo, receiptRepo, connHub, outboxRepo)
+	deviceSvc := deviceservice.NewService(deviceRepo)
 	chatHandler := chathandler.New(chatSvc)
+	deviceHandler := devicehandler.New(deviceSvc)
 	wsHandler := wshandler.New(connHub, cfg.JWT.Secret, log)
 
 	router := chi.NewRouter()
@@ -91,6 +97,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	router.Group(func(r chi.Router) {
 		r.Use(mw.Authenticate(cfg.JWT.Secret))
+
+		r.Post("/api/v1/devices/register", deviceHandler.Register)
+		r.Post("/api/v1/devices/unregister", deviceHandler.Unregister)
 
 		r.Post("/api/v1/dialogs/{id}/messages", chatHandler.SendMessage)
 		r.Get("/api/v1/dialogs/{id}/messages", chatHandler.ListMessages)

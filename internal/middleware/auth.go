@@ -48,6 +48,11 @@ func UserIDFromContext(ctx context.Context) string {
 	return val
 }
 
+// ContextWithUserID добавляет userID в контекст. Используется в тестах для эмуляции аутентифицированного запроса.
+func ContextWithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userIDKey, userID)
+}
+
 func bearerToken(r *http.Request) (string, bool) {
 	header := r.Header.Get("Authorization")
 	if header == "" {

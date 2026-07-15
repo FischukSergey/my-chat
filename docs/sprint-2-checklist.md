@@ -23,82 +23,128 @@
 
 ## 3) Репозитории и store-слой
 
-- [ ] Реализовать `DeviceRepository` (upsert/register, disable/unregister, list active devices).
-- [ ] Реализовать `NotificationOutboxRepository` (enqueue, claim batch, mark sent, mark failed/retry).
-- [ ] Добавить дедупликацию outbox-задач (dedup key).
-- [ ] Добавить unit-тесты репозиториев `devices` и `notification_outbox`.
+- [x] Реализовать `DeviceRepository` (upsert/register, disable/unregister, list active devices).
+- [x] Реализовать `NotificationOutboxRepository` (enqueue, claim batch, mark sent, mark failed/retry).
+- [x] Добавить дедупликацию outbox-задач (dedup key).
+- [x] Добавить unit-тесты репозиториев `devices` и `notification_outbox`.
+
+Примечание: `DeviceRepository` — `internal/store/device_repository.go`; `NotificationOutboxRepository` — `internal/store/notification_outbox_repository.go`. Модели `Device`, `NotificationOutbox` добавлены в `internal/store/models.go`. Дедупликация реализована через `ON CONFLICT (dedup_key) DO NOTHING`. Тесты — `internal/store/repositories_integration_test.go` (build tag `integration`).
 
 ## 4) API `main-service` (devices)
 
-- [ ] Реализовать `POST /api/v1/devices/register`.
-- [ ] Реализовать `POST /api/v1/devices/unregister`.
-- [ ] Добавить DTO и валидацию (`platform`, `push_token`).
-- [ ] Подключить auth middleware для новых ручек.
-- [ ] Описать ошибки в едином формате (`code`, `message`, `details`).
+- [x] Реализовать `POST /api/v1/devices/register`.
+- [x] Реализовать `POST /api/v1/devices/unregister`.
+- [x] Добавить DTO и валидацию (`platform`, `push_token`).
+- [x] Подключить auth middleware для новых ручек.
+- [x] Описать ошибки в едином формате (`code`, `message`, `details`).
+
+Примечание: `internal/handlers/device/handler.go`, `internal/services/device/service.go`. Маршруты зарегистрированы в auth-группе `app/mainservice/app.go`. Формат ошибок расширен полем `details` согласно `docs/api-sprint-2.md`.
 
 ## 5) Chat-service и outbox публикация
 
-- [ ] При `SendMessage` публиковать задачу в outbox, если получатель offline по WS.
-- [ ] Не публиковать push-задачу, если получатель online.
-- [ ] Включать в payload: `message_id`, `dialog_id`, `sender_id`, `preview`, `unread_count`.
-- [ ] Добавить unit-тесты offline/online веток публикации.
+- [x] При `SendMessage` публиковать задачу в outbox, если получатель offline по WS.
+- [x] Не публиковать push-задачу, если получатель online.
+- [x] Включать в payload: `message_id`, `dialog_id`, `sender_id`, `preview`, `unread_count`.
+- [x] Добавить unit-тесты offline/online веток публикации.
+
+Примечание: `outboxPublisher` интерфейс добавлен в `services/chat/service.go`. При `receiverOnline == false` вызывается `enqueueOutbox` — строит payload согласно `docs/api-sprint-2.md`, dedup_key: `message_new:<message_id>:<receiver_id>`. `BuildPreview` нормализует переносы строк и обрезает до 120 рун. Тесты: `TestSendMessage_ReceiverOffline_EnqueuesOutbox`, `TestSendMessage_ReceiverOnline_NoOutbox`, `TestBuildPreview_*`.
 
 ## 6) `notification-worker`
 
-- [ ] Реализовать polling outbox (`pending/failed`, `next_attempt_at <= now`).
-- [ ] Реализовать обработку батчами.
-- [ ] Добавить abstraction push-provider.
-- [ ] Реализовать `dev-log` provider для local/dev.
-- [ ] Реализовать `noop/fake` provider для тестов.
-- [ ] Добавить retry policy (exponential backoff, max attempts).
-- [ ] Обновлять статусы outbox (`pending` -> `sent` / `failed`).
-- [ ] Логировать `push_attempt` в структурированном виде.
+- [x] Реализовать polling outbox (`pending/failed`, `next_attempt_at <= now`).
+- [x] Реализовать обработку батчами.
+- [x] Добавить abstraction push-provider.
+- [x] Реализовать `dev-log` provider для local/dev.
+- [x] Реализовать `noop/fake` provider для тестов.
+- [x] Добавить retry policy (exponential backoff, max attempts).
+- [x] Обновлять статусы outbox (`pending` -> `sent` / `failed`).
+- [x] Логировать `push_attempt` в структурированном виде.
+
+Примечание: push-provider abstraction — `internal/clients/push/` (`provider.go`, `devlog.go`, `noop.go`). Worker с poll-loop, retry/backoff и структурными логами — `internal/services/notification/worker.go`; unit-тесты — `internal/services/notification/worker_test.go`. Bootstrap с подключением к БД и выбором provider — `internal/app/notificationworker/app.go`. Конфигурация worker — `NotificationWorkerConfig` в `internal/config/config.go`; пример — `configs/config.notification-worker.local.example.yaml`. Валидация `JWTConfig` ослаблена до `omitempty`, обязательность проверяется вручную в `App.New` каждого сервиса.
 
 ## 7) Badge и realtime синхронизация
 
-- [ ] Зафиксировать backend как source of truth для unread/badge.
-- [ ] При `read` пересчитывать unread и отправлять `badge_updated` через WS.
-- [ ] При push включать актуальный `badge` в payload.
-- [ ] Проверить консистентность с `GET /api/v1/me/unread-count`.
+- [x] Зафиксировать backend как source of truth для unread/badge.
+- [x] При `read` пересчитывать unread и отправлять `badge_updated` через WS.
+- [x] При push включать актуальный `badge` в payload.
+- [x] Проверить консистентность с `GET /api/v1/me/unread-count`.
+
+Примечание: `MarkRead` в `internal/services/chat/service.go` после записи в БД вызывает `CountUnread` и отправляет читателю `badge_updated` (формат по `docs/api-sprint-2.md` §7) — best-effort, сбой подсчёта не откатывает `MarkRead`. В `internal/clients/push/provider.go` добавлено явное поле `Badge int` (равно `UnreadCount` в Sprint 2); заполняется в `internal/services/notification/worker.go` и логируется в `internal/clients/push/devlog.go`. Тест `TestMarkRead_SendsBadgeUpdatedToReader` и обновлённый `TestMarkRead_NotifiesSender` — в `internal/services/chat/service_test.go`.
 
 ## 8) Debug UI и документация
 
-- [ ] Добавить в `/debug` шорткат `devices/register`.
-- [ ] Добавить в `/debug` шорткат `devices/unregister`.
-- [ ] Отобразить результат push/outbox сценария в debug-логе.
-- [ ] Обновить `docs/api-sprint-1.md` или вынести отдельный API-док для Sprint 2.
-- [ ] Обновить ручной сценарий проверки (`docs/debug-manual-test.md`) под push/badge flow.
+- [x] Добавить в `/debug` шорткат `devices/register`.
+- [x] Добавить в `/debug` шорткат `devices/unregister`.
+- [x] Отобразить результат push/outbox сценария в debug-логе.
+- [x] Обновить `docs/api-sprint-1.md` или вынести отдельный API-док для Sprint 2.
+- [x] Обновить ручной сценарий проверки (`docs/debug-manual-test.md`) под push/badge flow.
+
+Примечание: в `internal/handlers/debug/handler.go` добавлены шорткаты **Device register** и **Device unregister** (выбор платформы, ввод `push_token`, кнопки `POST devices/register` / `POST devices/unregister`). Результаты отображаются в JS-логе debug UI. В `docs/api-sprint-2.md` добавлен раздел §9 с описанием WS-события `badge_updated`. В `docs/debug-manual-test.md` добавлен сценарий Sprint 2 (register device → send offline → worker push → reconnect → mark read → badge_updated).
 
 ## 9) Локальная инфраструктура
 
-- [ ] Добавить `notification-worker` в `deploy/local/docker-compose.local.yml`.
-- [ ] Добавить/проверить локальный конфиг `notification-worker`.
-- [ ] Проверить запуск окружения: `postgres + auth-proxy + main-service + notification-worker`.
-- [ ] Проверить базовый smoke e2e сценарий в local.
+- [x] Добавить `notification-worker` в `deploy/local/docker-compose.local.yml`.
+- [x] Добавить/проверить локальный конфиг `notification-worker`.
+- [x] Проверить запуск окружения: `postgres + auth-proxy + main-service + notification-worker`.
+- [x] Проверить базовый smoke e2e сценарий в local.
+
+Примечание: `task local:up` поднимает 5 контейнеров (postgres, auth-proxy, main-service, notification-worker, message-expirer), все переходят в `Healthy`. Исправлен баг двойного `json.Marshal` в `notification_outbox_repository.go:Enqueue` (payload хранился как base64-строка вместо JSON-объекта). Исправлены Dockerfile-ы: убран явный `GOARCH=amd64` (причина SIGSEGV в Go 1.24 + Docker Desktop for Mac с ядром &lt;5.11). Smoke e2e пройден: login → send → unread=1 → mark read → unread=0 → device register → send (outbox) → worker delivery (dev-log лог показывает `dev_push_sent`) → device unregister.
 
 ## 10) Тесты и качество
 
-- [ ] Unit-тесты на Device API handlers.
-- [ ] Unit-тесты на outbox publisher.
-- [ ] Unit-тесты retry/backoff логики worker.
-- [ ] Integration-тест: offline recipient -> outbox task created.
-- [ ] Integration-тест: worker обрабатывает outbox и помечает задачу `sent`.
-- [ ] Integration-тест: `read` синхронизирует unread/badge.
-- [ ] Проверить `task fmt`.
-- [ ] Проверить `task lint`.
-- [ ] Проверить `task test`.
+- [x] Unit-тесты на Device API handlers.
+- [x] Unit-тесты на outbox publisher.
+- [x] Unit-тесты retry/backoff логики worker.
+- [x] Integration-тест: offline recipient -> outbox task created.
+- [x] Integration-тест: worker обрабатывает outbox и помечает задачу `sent`.
+- [x] Integration-тест: `read` синхронизирует unread/badge.
+- [x] Проверить `task fmt`.
+- [x] Проверить `task lint`.
+- [x] Проверить `task test`.
+
+Примечание: добавлены `internal/handlers/device/handler_test.go` (13 unit-тестов — Register/Unregister: success, 401, bad JSON, invalid platform, empty/long token, service error). Добавлена публичная утилита `middleware.ContextWithUserID` для инжекции userID в тестах. В `internal/services/chat/integration_test.go` добавлены `TestIntegration_OfflineRecipient_OutboxTaskCreated` (проверяет, что задача попадает в БД) и `TestIntegration_ReadSynchronizesUnreadBadge` (3 сообщения → unread=3 → mark read одного → unread=2, идемпотентность). Добавлен `internal/services/notification/integration_test.go` с `TestIntegration_WorkerProcessesOutbox_MarksSent` и `TestIntegration_WorkerProcessesOutbox_NoDevices_MarksSent`. Исправлен `store/migrate.go`: добавлена защита от параллельного запуска через `pg_advisory_lock`. Все тесты (unit + integration) зелёные, lint — 0 issues.
 
 ## 11) Критерии готовности (DoD)
 
-- [ ] Устройство регистрируется/отключается через API.
-- [ ] Для offline получателя создается outbox-задача.
-- [ ] `notification-worker` обрабатывает outbox и завершает отправку.
-- [ ] Badge и unread не расходятся после `read`.
-- [ ] Debug-сценарий push/badge воспроизводим вручную.
-- [ ] Документация Sprint 2 актуализирована.
+- [x] Устройство регистрируется/отключается через API.
+- [x] Для offline получателя создается outbox-задача.
+- [x] `notification-worker` обрабатывает outbox и завершает отправку.
+- [x] Badge и unread не расходятся после `read`.
+- [x] Debug-сценарий push/badge воспроизводим вручную.
+- [x] Документация Sprint 2 актуализирована.
 
 ## 12) Демо
 
-- [ ] Подготовить тестовых пользователей и device token в local.
-- [ ] Запустить демонстрацию `send while offline -> outbox -> push -> badge_updated`.
-- [ ] Зафиксировать known limitations Sprint 2.
+- [x] Подготовить тестовых пользователей и device token в local.
+- [x] Запустить демонстрацию `send while offline -> outbox -> push -> badge_updated`.
+- [x] Зафиксировать known limitations Sprint 2.
+
+**Результат демо** (запуск 2026-07-15):
+
+| Шаг | Ожидание | Факт |
+|-----|----------|------|
+| A отправляет сообщение, B offline | HTTP 200 + задача в `notification_outbox` со статусом `pending` | ✅ |
+| `notification-worker` забирает задачу | Лог `dev_push_sent` + `push_attempt status=sent` | ✅ |
+| Задача в БД | `status=sent`, `attempt=1` | ✅ |
+| B читает сообщение | HTTP 204, `unread_count` уменьшился | ✅ |
+| Очистка: unregister device | HTTP 204 | ✅ |
+
+**Known Limitations Sprint 2:**
+
+1. **dev-log push provider** — реальные APNs/FCM не подключены; «доставка» фиксируется только в логах сервера. Для production нужен провайдер `apns` или `fcm`.
+
+2. **`badge_updated` WS-событие** — best-effort: если получатель не подключён к WebSocket в момент `mark_read`, событие теряется (нет очереди повторной доставки).
+
+3. **`message-expirer`** — заглушка (placeholder), фактическая логика истечения сообщений в Sprint 2 не реализована.
+
+4. **Устаревшее значение badge в push** — `unread_count` рассчитывается в момент постановки задачи в outbox, а не в момент отправки push. Если между enqueue и delivery придут новые сообщения, badge в пуше может быть занижен.
+
+5. **`notification_outbox` не очищается** — задачи со статусом `sent` накапливаются бесконечно; механизма архивации/purge нет.
+
+6. **Polling interval = 5 сек** — возможна задержка до 5 секунд между отправкой сообщения и доставкой push.
+
+7. **Отсутствует silent push при badge-only обновлении** — если пользователь читает сообщение на одном устройстве, значок на другом устройстве не обновится автоматически.
+
+8. **Device register возвращает HTTP 200 вместо 201** — minor несоответствие REST-конвенции (без последствий для клиентов).
+
+**Sprint 2 — DONE ✅**
