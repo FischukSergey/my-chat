@@ -10,8 +10,6 @@ vars:
   GOLANGCI_LINT_VERSION: v2.1.6
   GOLANGCI_LINT_CACHE:
     sh: echo "$HOME/Library/Caches/golangci-lint"
-  GOPATH_HOST:
-    sh: go env GOPATH
   DOCKER_COMPOSE_CMD: "docker compose"
   LOCAL_COMPOSE_FILE: "deploy/local/docker-compose.local.yml"
   TEST_COMPOSE_FILE: "deploy/test/docker-compose.test.yml"
@@ -54,10 +52,11 @@ tasks:
     desc: Run golangci-lint command in Docker
     cmds:
       - |
+        GOMODCACHE="$(go env GOMODCACHE)" && \
         docker run --rm \
           -v "$(pwd):/app" -w /app \
           -v "{{.GOLANGCI_LINT_CACHE}}:/root/.cache" \
-          -v "{{.GOPATH_HOST}}/pkg/mod:/root/go/pkg/mod:ro" \
+          -v "${GOMODCACHE}:/root/go/pkg/mod:ro" \
           -e GOEXPERIMENT=rangefunc \
           golangci/golangci-lint:{{.GOLANGCI_LINT_VERSION}} \
           golangci-lint {{.CLI_ARGS}}

@@ -37,20 +37,24 @@
 
 ## 4) JWT
 
-- [ ] Добавить claim `session_id` в access и refresh tokens.
-- [ ] Реализовать `IssueAccessWithSession` / `IssueRefreshWithSession`.
-- [ ] Реализовать парсинг `session_id` из токена.
-- [ ] Добавить unit-тесты JWT с session claims.
+- [x] Добавить claim `session_id` в access и refresh tokens.
+- [x] Реализовать `IssueAccessWithSession` / `IssueRefreshWithSession`.
+- [x] Реализовать парсинг `session_id` из токена.
+- [x] Добавить unit-тесты JWT с session claims.
+
+Примечание: `Claims.SessionID string` добавлен с `omitempty` (обратная совместимость). Внутренняя функция `issue` принимает `sessionID`. Добавлены `IssueAccessWithSession`, `IssueRefreshWithSession`, `ParseRefreshClaims` (возвращает полный `Claims`). Старые функции `IssueAccess`/`IssueRefresh`/`ParseAccess`/`ParseRefresh` не изменились. Тесты: `internal/jwt/jwt_test.go`, 11 тестов, все PASS. Lint — 0 issues.
 
 ## 5) Auth service (`internal/services/auth/`)
 
-- [ ] Реализовать `Login` — создание session + выдача token pair.
-- [ ] Реализовать `Refresh` — validation, rotation, новая пара.
-- [ ] Реализовать `Logout` — revoke session по refresh token.
-- [ ] Реализовать reuse detection в `Refresh`.
+- [x] Реализовать `Login` — создание session + выдача token pair.
+- [x] Реализовать `Refresh` — validation, rotation, новая пара.
+- [x] Реализовать `Logout` — revoke session по refresh token.
+- [x] Реализовать reuse detection в `Refresh`.
 - [ ] Опционально: проверка `users.status = active` при login.
-- [ ] Добавить structured audit logs: `auth_login`, `auth_refresh`, `auth_logout`, `auth_reuse_detected`.
-- [ ] Добавить unit-тесты auth service.
+- [x] Добавить structured audit logs: `auth_login`, `auth_refresh`, `auth_logout`, `auth_reuse_detected`.
+- [x] Добавить unit-тесты auth service.
+
+Примечание: `internal/services/auth/service.go` — Login (SHA-256 hash refresh, Create session, audit log), Refresh (ParseRefreshClaims, FindByTokenHash, reuse detection → RevokeFamily + ErrSessionCompromised, rotation → RotateSession, audit log), Logout (идемпотентный, audit log), RevokeAll. Ошибки: ErrSessionRevoked, ErrSessionExpired, ErrSessionCompromised. `service_test.go` — 12 unit-тестов, все PASS. Lint — 0 issues.
 
 ## 6) Auth handlers и `auth-proxy`
 
