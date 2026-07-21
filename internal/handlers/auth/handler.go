@@ -2,29 +2,29 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
-	"time"
 
-	"my-chat/internal/jwt"
+	authsvc "my-chat/internal/services/auth"
 )
 
-// Config хранит зависимости хендлеров auth.
-type Config struct {
-	JWTSecret          string
-	AccessTokenTTLSec  int
-	RefreshTokenTTLSec int
+type authService interface {
+	Login(ctx context.Context, userID string, deviceID *string) (authsvc.TokenPair, error)
+	Refresh(ctx context.Context, refreshToken string) (authsvc.TokenPair, error)
+	Logout(ctx context.Context, refreshToken string) error
+	RevokeAll(ctx context.Context, userID string) error
 }
 
 // Handler предоставляет методы login/refresh/logout.
 type Handler struct {
-	cfg Config
+	svc authService
 }
 
 // New создает Handler.
-func New(cfg Config) *Handler {
-	return &Handler{cfg: cfg}
+func New(svc authService) *Handler {
+	return &Handler{svc: svc}
 }
 
 // --- Login ---
@@ -38,9 +38,10 @@ type tokenResponse struct {
 	RefreshToken string `json:"refresh_token"`
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
+	SessionID    string `json:"session_id"`
 }
 
-// Login выдаёт пару токенов для userID.
+// Login выдаёт пару токенов и создаёт серверную сессию.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UserID == "" {
@@ -48,18 +49,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	access, refresh, err := h.issueTokenPair(req.UserID)
+	pair, err := h.svc.Login(r.Context(), req.UserID, nil)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", "failed to issue tokens")
+		respondError(w, http.StatusInternalServerError, "internal", "failed to login")
 		return
 	}
 
-	respondJSON(w, http.StatusOK, tokenResponse{
-		AccessToken:  access,
-		RefreshToken: refresh,
-		TokenType:    "Bearer",
-		ExpiresIn:    h.cfg.AccessTokenTTLSec,
-	})
+	respondJSON(w, http.StatusOK, pairToResponse(pair))
 }
 
 // --- Refresh ---
@@ -68,7 +64,7 @@ type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-// Refresh выпускает новую пару токенов по валидному refresh-токену.
+// Refresh ротирует refresh-токен и выдаёт новую пару.
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var req refreshRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
@@ -76,28 +72,13 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, err := jwt.ParseRefresh(req.RefreshToken, h.cfg.JWTSecret)
+	pair, err := h.svc.Refresh(r.Context(), req.RefreshToken)
 	if err != nil {
-		if errors.Is(err, jwt.ErrInvalidToken) || errors.Is(err, jwt.ErrWrongTokenType) {
-			respondError(w, http.StatusUnauthorized, "unauthenticated", "invalid refresh token")
-			return
-		}
-		respondError(w, http.StatusInternalServerError, "internal", "failed to parse token")
+		respondAuthError(w, err)
 		return
 	}
 
-	access, refresh, err := h.issueTokenPair(userID)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", "failed to issue tokens")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, tokenResponse{
-		AccessToken:  access,
-		RefreshToken: refresh,
-		TokenType:    "Bearer",
-		ExpiresIn:    h.cfg.AccessTokenTTLSec,
-	})
+	respondJSON(w, http.StatusOK, pairToResponse(pair))
 }
 
 // --- Logout ---
@@ -106,7 +87,7 @@ type logoutRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-// Logout завершает сессию (MVP: только валидирует refresh, реального revoke нет).
+// Logout отзывает текущую сессию.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	var req logoutRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
@@ -114,8 +95,8 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := jwt.ParseRefresh(req.RefreshToken, h.cfg.JWTSecret); err != nil {
-		respondError(w, http.StatusUnauthorized, "unauthenticated", "invalid refresh token")
+	if err := h.svc.Logout(r.Context(), req.RefreshToken); err != nil {
+		respondAuthError(w, err)
 		return
 	}
 
@@ -124,18 +105,28 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ---
 
-func (h *Handler) issueTokenPair(userID string) (access, refresh string, err error) {
-	access, err = jwt.IssueAccess(userID, h.cfg.JWTSecret, time.Duration(h.cfg.AccessTokenTTLSec)*time.Second)
-	if err != nil {
-		return "", "", err
+func pairToResponse(p authsvc.TokenPair) tokenResponse {
+	return tokenResponse{
+		AccessToken:  p.AccessToken,
+		RefreshToken: p.RefreshToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    p.ExpiresIn,
+		SessionID:    p.SessionID,
 	}
+}
 
-	refresh, err = jwt.IssueRefresh(userID, h.cfg.JWTSecret, time.Duration(h.cfg.RefreshTokenTTLSec)*time.Second)
-	if err != nil {
-		return "", "", err
+// respondAuthError маппирует ошибки auth-сервиса на HTTP-коды согласно api-sprint-3.md.
+func respondAuthError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, authsvc.ErrSessionExpired):
+		respondError(w, http.StatusUnauthorized, "session_expired", "session has expired")
+	case errors.Is(err, authsvc.ErrSessionCompromised):
+		respondError(w, http.StatusUnauthorized, "session_compromised", "token reuse detected, all sessions revoked")
+	case errors.Is(err, authsvc.ErrSessionRevoked):
+		respondError(w, http.StatusUnauthorized, "session_revoked", "session has been revoked")
+	default:
+		respondError(w, http.StatusInternalServerError, "internal", "internal server error")
 	}
-
-	return access, refresh, nil
 }
 
 func respondJSON(w http.ResponseWriter, status int, payload any) {

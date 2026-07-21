@@ -58,27 +58,33 @@
 
 ## 6) Auth handlers и `auth-proxy`
 
-- [ ] Рефакторинг `internal/handlers/auth/handler.go` — делегирование в auth service.
-- [ ] Обновить error codes: `session_expired`, `session_revoked`, `session_compromised`.
-- [ ] Подключить PostgreSQL в `internal/app/authproxy/app.go`.
-- [ ] Запуск `Migrate()` при старте auth-proxy.
-- [ ] Обновить `configs/config.auth-proxy.local.example.yaml` (секция database).
-- [ ] Добавить unit-тесты auth handlers.
+- [x] Рефакторинг `internal/handlers/auth/handler.go` — делегирование в auth service.
+- [x] Обновить error codes: `session_expired`, `session_revoked`, `session_compromised`.
+- [x] Подключить PostgreSQL в `internal/app/authproxy/app.go`.
+- [x] Запуск `Migrate()` при старте auth-proxy.
+- [x] Обновить `configs/config.auth-proxy.local.example.yaml` (секция database).
+- [x] Добавить unit-тесты auth handlers.
+
+Примечание: `handler.go` рефакторирован — принимает интерфейс `authService`; маппинг ошибок: `ErrSessionRevoked→session_revoked`, `ErrSessionExpired→session_expired`, `ErrSessionCompromised→session_compromised`; `tokenResponse` дополнен `session_id`. `app.go` подключает PostgreSQL, запускает `Migrate()`, создаёт `AuthSessionRepository` и `auth.Service`. Конфиги `local.example` и `docker.local` дополнены секцией `database`. `handler_test.go` — 12 unit-тестов (Login/Refresh/Logout + все error codes). Lint — 0 issues (with --fix).
 
 ## 7) Локальная инфраструктура
 
-- [ ] Обновить `deploy/local/docker-compose.local.yml`: auth-proxy `depends_on: postgres`.
-- [ ] Проверить запуск: `postgres + auth-proxy + main-service + notification-worker`.
-- [ ] Smoke: login через auth-proxy создаёт запись в `auth_sessions`.
+- [x] Обновить `deploy/local/docker-compose.local.yml`: auth-proxy `depends_on: postgres`.
+- [x] Проверить запуск: `postgres + auth-proxy + main-service + notification-worker`.
+- [x] Smoke: login через auth-proxy создаёт запись в `auth_sessions`.
+
+Примечание: все 5 контейнеров (postgres, auth-proxy, main-service, notification-worker, message-expirer) запускаются и переходят в состояние Healthy. Smoke: POST /api/v1/auth/login → запись в auth_sessions создана; refresh → ротация сессии; повторный refresh со старым токеном → `session_compromised`, вся family отозвана (2 записи revoked в БД).
 
 ## 8) Debug UI
 
-- [ ] Сохранять `refresh_token` в debug UI (localStorage).
-- [ ] Добавить шорткат **Refresh** (`POST /api/v1/auth/refresh`).
-- [ ] Добавить шорткат **Logout** (`POST /api/v1/auth/logout`).
-- [ ] Добавить шорткат **Reuse test** (повторный refresh со старым token).
-- [ ] Опционально: auto-refresh access при 401.
-- [ ] Обновить `docs/debug-manual-test.md` — auth-сценарии Sprint 3.
+- [x] Сохранять `refresh_token` в debug UI (localStorage).
+- [x] Добавить шорткат **Refresh** (`POST /api/v1/auth/refresh`).
+- [x] Добавить шорткат **Logout** (`POST /api/v1/auth/logout`).
+- [x] Добавить шорткат **Reuse test** (повторный refresh со старым token).
+- [x] Опционально: auto-refresh access при 401.
+- [x] Обновить `docs/debug-manual-test.md` — auth-сценарии Sprint 3.
+
+Примечание: `handler.go` — полный редизайн раздела 1 (поля refresh_token + session_id badge), секция 4 разбита на Auth (Login/Refresh/Logout/Reuse test) и Чат/Устройства. localStorage: `saveTokens/clearTokens/loadTokens`. Auto-refresh: кнопка «Отправить + auto-refresh при 401» в разделе 2. `debug-manual-test.md` дополнен полным сценарием Sprint 3 (5 шагов + таблица итогов). Lint — 0 issues.
 
 ## 9) Мобильный клиент (Capacitor)
 

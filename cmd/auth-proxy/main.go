@@ -25,7 +25,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 
-	application, err := authproxy.New(cfg)
+	application, err := authproxy.New(ctx, cfg)
 	if err != nil {
 		log.Printf("init app: %v", err)
 		stop()

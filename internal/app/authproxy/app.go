@@ -14,6 +14,8 @@ import (
 	"my-chat/internal/config"
 	authhandler "my-chat/internal/handlers/auth"
 	"my-chat/internal/logger"
+	authsvc "my-chat/internal/services/auth"
+	"my-chat/internal/store"
 )
 
 // App инкапсулирует зависимости и жизненный цикл HTTP сервера auth-proxy.
@@ -21,12 +23,16 @@ type App struct {
 	cfg    config.Config
 	logger *slog.Logger
 	server *http.Server
+	store  *store.Store
 }
 
 // New создает bootstrap для сервиса auth-proxy.
-func New(cfg config.Config) (*App, error) {
+func New(ctx context.Context, cfg config.Config) (*App, error) {
 	if !cfg.Servers.Client.IsConfigured() {
 		return nil, errors.New("servers.client.addr is required for auth-proxy")
+	}
+	if !cfg.Database.IsConfigured() {
+		return nil, errors.New("database.dsn is required for auth-proxy")
 	}
 	if !cfg.JWT.IsConfigured() {
 		return nil, errors.New("jwt.secret is required for auth-proxy")
@@ -41,11 +47,40 @@ func New(cfg config.Config) (*App, error) {
 		slog.Int("refresh_token_ttl_sec", cfg.JWT.RefreshTokenTTL),
 	)
 
-	authHandler := authhandler.New(authhandler.Config{
-		JWTSecret:          cfg.JWT.Secret,
-		AccessTokenTTLSec:  cfg.JWT.AccessTokenTTL,
-		RefreshTokenTTLSec: cfg.JWT.RefreshTokenTTL,
-	})
+	log.Info("подключение к PostgreSQL")
+	postgresStore, err := store.New(ctx, cfg.Database.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("init store: %w", err)
+	}
+	log.Info("подключение к PostgreSQL успешно")
+
+	if cfg.Database.AutoMigrate {
+		log.Info("запуск миграций БД")
+		migrationReport, migrationErr := postgresStore.Migrate(ctx)
+		if migrationErr != nil {
+			postgresStore.Close()
+			return nil, fmt.Errorf("run migrations: %w", migrationErr)
+		}
+		log.Info(
+			"миграции БД применены успешно",
+			slog.Int("migrations_count", len(migrationReport.Applied)),
+			slog.Any("migrations", migrationReport.Applied),
+		)
+	}
+
+	sessionRepo := store.NewAuthSessionRepository(postgresStore)
+
+	authService := authsvc.NewService(
+		sessionRepo,
+		authsvc.Config{
+			JWTSecret:       cfg.JWT.Secret,
+			AccessTokenTTL:  time.Duration(cfg.JWT.AccessTokenTTL) * time.Second,
+			RefreshTokenTTL: time.Duration(cfg.JWT.RefreshTokenTTL) * time.Second,
+		},
+		log,
+	)
+
+	authHandler := authhandler.New(authService)
 
 	router := chi.NewRouter()
 	router.Use(corsMiddleware)
@@ -64,6 +99,7 @@ func New(cfg config.Config) (*App, error) {
 		cfg:    cfg,
 		logger: log,
 		server: server,
+		store:  postgresStore,
 	}, nil
 }
 
