@@ -118,21 +118,25 @@
 
 ## 11) Критерии готовности (DoD)
 
-- [ ] Refresh ротируется при каждом обновлении; старый token invalid.
-- [ ] Logout revoke session на сервере.
-- [ ] Reuse detection работает и логируется.
-- [ ] Debug UI воспроизводит полный auth lifecycle.
-- [ ] Мобильный клиент: secure storage + biometric unlock на симуляторе.
-- [ ] Cold start → biometric → refresh → API call успешен.
-- [ ] Документация Sprint 3 актуализирована.
+- [x] Refresh ротируется при каждом обновлении; старый token invalid.
+- [x] Logout revoke session на сервере.
+- [x] Reuse detection работает и логируется.
+- [x] Debug UI воспроизводит полный auth lifecycle.
+- [x] Мобильный клиент: secure storage + biometric unlock на симуляторе.
+- [x] Cold start → biometric → refresh → API call успешен.
+- [x] Документация Sprint 3 актуализирована.
+
+Примечание: все критерии подтверждены. Refresh: RotateSession в транзакции, старый токен revoked — проверено интеграционным тестом. Logout: RevokeSession идемпотентен — проверено тестом. Reuse detection: `auth_reuse_detected` в slog.Warn + RevokeFamily — проверено smoke и тестом. Debug UI: полный цикл Login/Refresh/Logout/Reuse test в `internal/handlers/debug/handler.go`. Мобильный клиент: `getRefreshToken()` требует биометрии, cold start flow реализован в `mobile/src/main.ts`, smoke на iOS Simulator прошёл. Документация: `docs/api-sprint-3.md`, `docs/sprint-3-plan.md`, `docs/debug-manual-test.md`, `mobile/README.md`, `docs/known-limitations-sprint-3.md` актуализированы.
 
 ## 12) Демо
 
-- [ ] Подготовить тестовых пользователей в local.
-- [ ] Backend demo: login → refresh → logout → reuse detection.
-- [ ] Mobile demo: cold start → biometric → unread count.
-- [ ] Зафиксировать known limitations Sprint 3 (`docs/known-limitations-sprint-3.md`).
+- [x] Подготовить тестовых пользователей в local.
+- [x] Backend demo: login → refresh → logout → reuse detection.
+- [x] Mobile demo: cold start → biometric → unread count.
+- [x] Зафиксировать known limitations Sprint 3 (`docs/known-limitations-sprint-3.md`).
+
+Примечание: тестовые пользователи `11111111-1111-1111-1111-111111111111` и `22222222-2222-2222-2222-222222222222` присутствуют в local БД. Backend demo: smoke сценарий описан в `docs/debug-manual-test.md` (5 шагов). Mobile demo: iOS Simulator — Login OK, GET /api/v1/me/unread-count OK после добавления CORS в main-service. Known limitations зафиксированы в `docs/known-limitations-sprint-3.md` (10 пунктов).
 
 ---
 
-**Sprint 3 — IN PROGRESS**
+**Sprint 3 — DONE**
