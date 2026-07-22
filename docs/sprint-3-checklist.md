@@ -88,29 +88,33 @@
 
 ## 9) Мобильный клиент (Capacitor)
 
-- [ ] Scaffold проекта в `mobile/` (Ionic/Capacitor или React/Capacitor).
-- [ ] Экран Login — dev login по `user_id`.
-- [ ] Secure storage wrapper для refresh token (Keychain / Keystore).
-- [ ] Biometric plugin — gate перед чтением refresh.
-- [ ] HTTP client с auto-refresh при 401 / exp access.
-- [ ] Cold start flow: biometric → refresh → API call.
-- [ ] Logout — wipe secure storage + server revoke.
-- [ ] Обработка `session_compromised` → wipe + redirect login.
-- [ ] Обработка смены биометрии → wipe + redirect login.
-- [ ] Smoke: `GET /api/v1/me/unread-count` после unlock.
-- [ ] README в `mobile/` с инструкцией сборки.
+- [x] Scaffold проекта в `mobile/` (Vanilla TS + Vite + Capacitor 8).
+- [x] Экран Login — dev login по `user_id`.
+- [x] Secure storage wrapper для refresh token (Keychain / Keystore).
+- [x] Biometric plugin — gate перед чтением refresh.
+- [x] HTTP client с auto-refresh при 401 / exp access.
+- [x] Cold start flow: biometric → refresh → API call.
+- [x] Logout — wipe secure storage + server revoke.
+- [x] Обработка `session_compromised` → wipe + redirect login.
+- [x] Обработка смены биометрии → wipe + redirect login.
+- [x] Smoke: `GET /api/v1/me/unread-count` после unlock.
+- [x] README в `mobile/` с инструкцией сборки.
+
+Примечание: `mobile/src/auth.ts` — secure storage (`@capacitor/preferences` → Keychain на iOS), biometric gate (`@aparajita/capacitor-biometric-auth`); инвариант: `getRefreshToken()` всегда требует биометрию. `mobile/src/api.ts` — HTTP client, `fetchAuth()` с auto-refresh при 401, ошибки `SessionCompromisedError/ExpiredError/RevokedError`. `mobile/src/main.ts` — routing Login→Unlock→Home, cold start flow, logout с server revoke. Три экрана в `index.html` переключаются через CSS `.active`. Сборка: `npm run build` → успех (7 модулей, 219ms). TypeScript: 0 ошибок. Для запуска на симуляторе: `npx cap add ios && npm run cap:ios`.
 
 ## 10) Тесты и качество
 
-- [ ] Unit-тесты: auth service (login, refresh, logout, reuse).
-- [ ] Unit-тесты: auth handlers.
-- [ ] Integration-тест: login → refresh → old refresh invalid.
-- [ ] Integration-тест: logout → refresh fails.
-- [ ] Integration-тест: reuse detection → family revoked.
-- [ ] Проверить `task fmt`.
-- [ ] Проверить `task lint`.
-- [ ] Проверить `task test`.
-- [ ] Проверить `task test:integration`.
+- [x] Unit-тесты: auth service (login, refresh, logout, reuse).
+- [x] Unit-тесты: auth handlers.
+- [x] Integration-тест: login → refresh → old refresh invalid.
+- [x] Integration-тест: logout → refresh fails.
+- [x] Integration-тест: reuse detection → family revoked.
+- [x] Проверить `task fmt`.
+- [x] Проверить `task lint`.
+- [x] Проверить `task test`.
+- [x] Проверить `task test:integration`.
+
+Примечание: написан `internal/services/auth/integration_test.go` — 3 интеграционных теста: `Login_Refresh_OldRefreshInvalid`, `Logout_RefreshFails`, `ReuseDetection_FamilyRevoked`. `task fmt` — OK. `task lint` — 0 issues. `task test` — все unit-тесты PASS. `task test:integration` — все интеграционные тесты PASS. CORS middleware добавлен в main-service (`corsMiddleware` в `internal/app/mainservice/app.go`) для поддержки Capacitor WebView.
 
 ## 11) Критерии готовности (DoD)
 

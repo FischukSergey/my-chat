@@ -91,6 +91,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	wsHandler := wshandler.New(connHub, cfg.JWT.Secret, log)
 
 	router := chi.NewRouter()
+	router.Use(corsMiddleware)
 	router.Get("/health", health.Handle)
 	router.Get("/debug", debughandler.Handle)
 	router.Get("/ws/connect", wsHandler.Connect)
@@ -164,4 +165,20 @@ func (a *App) Run(ctx context.Context) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+// corsMiddleware разрешает cross-origin запросы для debug UI и мобильного клиента.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
