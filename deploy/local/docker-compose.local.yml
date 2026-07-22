@@ -33,6 +33,9 @@ services:
     command: ["-config", "configs/config.auth-proxy.docker.local.yaml"]
     ports:
       - "33081:33081"
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   main-service:

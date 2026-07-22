@@ -2,6 +2,19 @@ package store
 
 import "time"
 
+// AuthSession представляет server-side запись refresh-сессии пользователя.
+type AuthSession struct {
+	ID          string
+	UserID      string
+	FamilyID    string
+	TokenHash   string  // SHA-256(refresh_token), hex-encoded
+	DeviceID    *string // опциональная связь с devices
+	ExpiresAt   time.Time
+	RevokedAt   *time.Time
+	RotatedFrom *string // ID предыдущей сессии в цепочке ротации
+	CreatedAt   time.Time
+}
+
 // Dialog представляет диалог между двумя пользователями.
 type Dialog struct {
 	ID        string

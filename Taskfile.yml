@@ -52,9 +52,11 @@ tasks:
     desc: Run golangci-lint command in Docker
     cmds:
       - |
+        GOMODCACHE="$(go env GOMODCACHE)" && \
         docker run --rm \
           -v "$(pwd):/app" -w /app \
           -v "{{.GOLANGCI_LINT_CACHE}}:/root/.cache" \
+          -v "${GOMODCACHE}:/root/go/pkg/mod:ro" \
           -e GOEXPERIMENT=rangefunc \
           golangci/golangci-lint:{{.GOLANGCI_LINT_VERSION}} \
           golangci-lint {{.CLI_ARGS}}

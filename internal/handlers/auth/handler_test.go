@@ -1,150 +1,322 @@
-// Package auth_test contains unit tests for the auth handler.
+// Package auth_test contains unit tests for the auth HTTP handler.
 package auth_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
-	"my-chat/internal/handlers/auth"
-	"my-chat/internal/jwt"
+	authhandler "my-chat/internal/handlers/auth"
+	authsvc "my-chat/internal/services/auth"
 )
 
-const (
-	testSecret        = "test-jwt-secret"
-	testAccessTTLSec  = 900
-	testRefreshTTLSec = 604800
-)
+// --- mock ---
 
-func newHandler() *auth.Handler {
-	return auth.New(auth.Config{
-		JWTSecret:          testSecret,
-		AccessTokenTTLSec:  testAccessTTLSec,
-		RefreshTokenTTLSec: testRefreshTTLSec,
-	})
+type mockAuthSvc struct {
+	loginFn     func(ctx context.Context, userID string, deviceID *string) (authsvc.TokenPair, error)
+	refreshFn   func(ctx context.Context, refreshToken string) (authsvc.TokenPair, error)
+	logoutFn    func(ctx context.Context, refreshToken string) error
+	revokeAllFn func(ctx context.Context, userID string) error
 }
 
-func jsonBody(t *testing.T, v any) *bytes.Reader {
-	t.Helper()
+func (m *mockAuthSvc) Login(ctx context.Context, userID string, deviceID *string) (authsvc.TokenPair, error) {
+	if m.loginFn != nil {
+		return m.loginFn(ctx, userID, deviceID)
+	}
 
+	return authsvc.TokenPair{}, nil
+}
+
+func (m *mockAuthSvc) Refresh(ctx context.Context, refreshToken string) (authsvc.TokenPair, error) {
+	if m.refreshFn != nil {
+		return m.refreshFn(ctx, refreshToken)
+	}
+
+	return authsvc.TokenPair{}, nil
+}
+
+func (m *mockAuthSvc) Logout(ctx context.Context, refreshToken string) error {
+	if m.logoutFn != nil {
+		return m.logoutFn(ctx, refreshToken)
+	}
+
+	return nil
+}
+
+func (m *mockAuthSvc) RevokeAll(ctx context.Context, userID string) error {
+	if m.revokeAllFn != nil {
+		return m.revokeAllFn(ctx, userID)
+	}
+
+	return nil
+}
+
+// --- helpers ---
+
+func jsonBody(v any) *bytes.Reader {
 	b, err := json.Marshal(v)
 	if err != nil {
-		t.Fatalf("marshal body: %v", err)
+		panic(err)
 	}
 
 	return bytes.NewReader(b)
 }
 
+func decodeTokenResponse(t *testing.T, body *bytes.Buffer) map[string]any {
+	t.Helper()
+	var resp map[string]any
+	if err := json.NewDecoder(body).Decode(&resp); err != nil {
+		t.Fatalf("decode token response: %v", err)
+	}
+	return resp
+}
+
+func decodeErrorCode(t *testing.T, body *bytes.Buffer) string {
+	t.Helper()
+	var resp struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(body).Decode(&resp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	return resp.Error.Code
+}
+
+// --- Login ---
+
 func TestLogin_Success(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/auth/login",
-		jsonBody(t, map[string]string{"user_id": "user-123"}),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	newHandler().Login(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	svc := &mockAuthSvc{
+		loginFn: func(_ context.Context, _ string, _ *string) (authsvc.TokenPair, error) {
+			return authsvc.TokenPair{
+				AccessToken:  "acc",
+				RefreshToken: "ref",
+				SessionID:    "sess-1",
+				ExpiresIn:    900,
+			}, nil
+		},
 	}
 
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+		jsonBody(map[string]string{"user_id": "user-1"}))
+	w := httptest.NewRecorder()
+
+	authhandler.New(svc).Login(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status: want 200, got %d", w.Code)
 	}
-	if _, ok := resp["access_token"]; !ok {
-		t.Error("missing access_token in response")
+
+	resp := decodeTokenResponse(t, w.Body)
+	if resp["access_token"] != "acc" {
+		t.Errorf("access_token mismatch: %v", resp["access_token"])
 	}
-	if _, ok := resp["refresh_token"]; !ok {
-		t.Error("missing refresh_token in response")
+	if resp["session_id"] != "sess-1" {
+		t.Errorf("session_id mismatch: %v", resp["session_id"])
+	}
+	if resp["token_type"] != "Bearer" {
+		t.Errorf("token_type mismatch: %v", resp["token_type"])
 	}
 }
 
-func TestLogin_EmptyUserID(t *testing.T) {
+func TestLogin_MissingUserID_Returns400(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/auth/login",
-		jsonBody(t, map[string]string{"user_id": ""}),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+		jsonBody(map[string]string{}))
+	w := httptest.NewRecorder()
 
-	newHandler().Login(rec, req)
+	authhandler.New(&mockAuthSvc{}).Login(w, r)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: want 400, got %d", w.Code)
+	}
+	if code := decodeErrorCode(t, w.Body); code != "invalid_argument" {
+		t.Errorf("error code: want invalid_argument, got %q", code)
 	}
 }
+
+func TestLogin_ServiceError_Returns500(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthSvc{
+		loginFn: func(_ context.Context, _ string, _ *string) (authsvc.TokenPair, error) {
+			return authsvc.TokenPair{}, errors.New("db error")
+		},
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+		jsonBody(map[string]string{"user_id": "user-1"}))
+	w := httptest.NewRecorder()
+
+	authhandler.New(svc).Login(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status: want 500, got %d", w.Code)
+	}
+}
+
+// --- Refresh ---
 
 func TestRefresh_Success(t *testing.T) {
 	t.Parallel()
 
-	refreshToken, err := jwt.IssueRefresh("user-123", testSecret, time.Duration(testRefreshTTLSec)*time.Second)
-	if err != nil {
-		t.Fatalf("issue refresh token: %v", err)
+	svc := &mockAuthSvc{
+		refreshFn: func(_ context.Context, _ string) (authsvc.TokenPair, error) {
+			return authsvc.TokenPair{AccessToken: "new-acc", RefreshToken: "new-ref", SessionID: "sess-2"}, nil
+		},
 	}
 
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/auth/refresh",
-		jsonBody(t, map[string]string{"refresh_token": refreshToken}),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
+		jsonBody(map[string]string{"refresh_token": "old-ref"}))
+	w := httptest.NewRecorder()
 
-	newHandler().Refresh(rec, req)
+	authhandler.New(svc).Refresh(w, r)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	if w.Code != http.StatusOK {
+		t.Errorf("status: want 200, got %d", w.Code)
 	}
 }
 
-func TestRefresh_InvalidToken(t *testing.T) {
+func TestRefresh_MissingToken_Returns400(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/auth/refresh",
-		jsonBody(t, map[string]string{"refresh_token": "not-a-valid-token"}),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
+		jsonBody(map[string]string{}))
+	w := httptest.NewRecorder()
 
-	newHandler().Refresh(rec, req)
+	authhandler.New(&mockAuthSvc{}).Refresh(w, r)
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401, got %d", rec.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: want 400, got %d", w.Code)
 	}
 }
+
+func TestRefresh_SessionRevoked_Returns401WithCorrectCode(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthSvc{
+		refreshFn: func(_ context.Context, _ string) (authsvc.TokenPair, error) {
+			return authsvc.TokenPair{}, authsvc.ErrSessionRevoked
+		},
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
+		jsonBody(map[string]string{"refresh_token": "tok"}))
+	w := httptest.NewRecorder()
+
+	authhandler.New(svc).Refresh(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status: want 401, got %d", w.Code)
+	}
+	if code := decodeErrorCode(t, w.Body); code != "session_revoked" {
+		t.Errorf("error code: want session_revoked, got %q", code)
+	}
+}
+
+func TestRefresh_SessionExpired_Returns401WithCorrectCode(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthSvc{
+		refreshFn: func(_ context.Context, _ string) (authsvc.TokenPair, error) {
+			return authsvc.TokenPair{}, authsvc.ErrSessionExpired
+		},
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
+		jsonBody(map[string]string{"refresh_token": "tok"}))
+	w := httptest.NewRecorder()
+
+	authhandler.New(svc).Refresh(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status: want 401, got %d", w.Code)
+	}
+	if code := decodeErrorCode(t, w.Body); code != "session_expired" {
+		t.Errorf("error code: want session_expired, got %q", code)
+	}
+}
+
+func TestRefresh_SessionCompromised_Returns401WithCorrectCode(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthSvc{
+		refreshFn: func(_ context.Context, _ string) (authsvc.TokenPair, error) {
+			return authsvc.TokenPair{}, authsvc.ErrSessionCompromised
+		},
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
+		jsonBody(map[string]string{"refresh_token": "tok"}))
+	w := httptest.NewRecorder()
+
+	authhandler.New(svc).Refresh(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status: want 401, got %d", w.Code)
+	}
+	if code := decodeErrorCode(t, w.Body); code != "session_compromised" {
+		t.Errorf("error code: want session_compromised, got %q", code)
+	}
+}
+
+// --- Logout ---
 
 func TestLogout_Success(t *testing.T) {
 	t.Parallel()
 
-	refreshToken, err := jwt.IssueRefresh("user-123", testSecret, time.Duration(testRefreshTTLSec)*time.Second)
-	if err != nil {
-		t.Fatalf("issue refresh token: %v", err)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout",
+		jsonBody(map[string]string{"refresh_token": "tok"}))
+	w := httptest.NewRecorder()
+
+	authhandler.New(&mockAuthSvc{}).Logout(w, r)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status: want 204, got %d", w.Code)
+	}
+}
+
+func TestLogout_MissingToken_Returns400(t *testing.T) {
+	t.Parallel()
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout",
+		jsonBody(map[string]string{}))
+	w := httptest.NewRecorder()
+
+	authhandler.New(&mockAuthSvc{}).Logout(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: want 400, got %d", w.Code)
+	}
+}
+
+func TestLogout_SessionRevoked_Returns401(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthSvc{
+		logoutFn: func(_ context.Context, _ string) error {
+			return authsvc.ErrSessionRevoked
+		},
 	}
 
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/auth/logout",
-		jsonBody(t, map[string]string{"refresh_token": refreshToken}),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout",
+		jsonBody(map[string]string{"refresh_token": "tok"}))
+	w := httptest.NewRecorder()
 
-	newHandler().Logout(rec, req)
+	authhandler.New(svc).Logout(w, r)
 
-	if rec.Code != http.StatusNoContent {
-		t.Errorf("expected 204, got %d", rec.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status: want 401, got %d", w.Code)
+	}
+	if code := decodeErrorCode(t, w.Body); code != "session_revoked" {
+		t.Errorf("error code: want session_revoked, got %q", code)
 	}
 }

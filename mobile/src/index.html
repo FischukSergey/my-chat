@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>my-chat</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #f5f5f7;
+      --card:    #ffffff;
+      --primary: #007aff;
+      --danger:  #ff3b30;
+      --text:    #1c1c1e;
+      --muted:   #8e8e93;
+      --radius:  14px;
+      --shadow:  0 2px 12px rgba(0,0,0,.08);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    /* Root layout */
+    #app {
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+      padding: 32px 24px env(safe-area-inset-bottom, 16px);
+    }
+
+    /* Screens */
+    .screen { display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; }
+    .screen.active { display: flex; }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 28px 24px;
+      width: 100%;
+      max-width: 380px;
+    }
+
+    h1 { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
+    .subtitle { color: var(--muted); font-size: 15px; margin-bottom: 28px; }
+
+    label { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-bottom: 4px; margin-top: 16px; }
+    input[type="text"] {
+      width: 100%; padding: 12px 14px; border: 1px solid #ddd;
+      border-radius: 10px; font-size: 16px; outline: none;
+      transition: border-color .2s;
+    }
+    input[type="text"]:focus { border-color: var(--primary); }
+
+    button {
+      width: 100%; padding: 14px; border: none; border-radius: 12px;
+      font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 12px;
+      transition: opacity .15s;
+    }
+    button:active { opacity: .75; }
+
+    .btn-primary   { background: var(--primary); color: #fff; }
+    .btn-secondary { background: #e5e5ea; color: var(--text); }
+    .btn-danger    { background: var(--danger); color: #fff; }
+
+    /* Global status bar */
+    #status-bar {
+      width: 100%;
+      max-width: 380px;
+      margin: 0 auto;
+      padding: 6px 0;
+      font-size: 14px;
+      color: var(--muted);
+      min-height: 22px;
+      text-align: center;
+    }
+    #status-bar.error { color: var(--danger); }
+
+    /* Lock icon */
+    .lock-icon { font-size: 72px; margin-bottom: 24px; text-align: center; }
+
+    /* Home unread */
+    .unread-block { text-align: center; padding: 24px 0; }
+    .unread-number { font-size: 72px; font-weight: 700; color: var(--primary); line-height: 1; }
+    .unread-label  { color: var(--muted); font-size: 15px; margin-top: 8px; }
+
+    /* Log */
+    #log-details { width: 100%; max-width: 380px; margin: 8px auto 0; }
+    #log-details summary { font-size: 13px; color: var(--muted); cursor: pointer; }
+    #log {
+      width: 100%; height: 130px; margin-top: 6px; padding: 8px;
+      border: 1px solid #ddd; border-radius: 8px;
+      font-family: ui-monospace, monospace; font-size: 11px;
+      resize: vertical; background: #fafafa;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Конфигурация URL -->
+  <div id="app">
+
+    <!-- ===== Login screen ===== -->
+    <div id="login" class="screen">
+      <div class="card">
+        <h1>my-chat</h1>
+        <p class="subtitle">Войдите чтобы продолжить</p>
+
+        <label for="user-id-input">User ID</label>
+        <input
+          id="user-id-input"
+          type="text"
+          placeholder="11111111-1111-1111-1111-111111111111"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+        />
+
+        <button id="btn-login" class="btn-primary">Войти</button>
+      </div>
+    </div>
+
+    <!-- ===== Unlock screen (cold start) ===== -->
+    <div id="unlock" class="screen">
+      <div class="card" style="text-align:center">
+        <div class="lock-icon">🔒</div>
+        <h1>my-chat</h1>
+        <p class="subtitle">Подтвердите личность для разблокировки</p>
+        <button id="btn-retry-unlock" class="btn-primary">Разблокировать</button>
+        <button id="btn-logout-from-unlock" class="btn-secondary">Выйти из аккаунта</button>
+      </div>
+    </div>
+
+    <!-- ===== Home screen ===== -->
+    <div id="home" class="screen">
+      <div class="card">
+        <h1>my-chat</h1>
+        <p class="subtitle">Добро пожаловать</p>
+
+        <div class="unread-block">
+          <div id="unread-count" class="unread-number">—</div>
+          <div class="unread-label">непрочитанных сообщений</div>
+        </div>
+
+        <button id="btn-refresh-count" class="btn-secondary">Обновить</button>
+        <button id="btn-logout" class="btn-danger">Выйти</button>
+      </div>
+    </div>
+
+    <!-- Глобальный статус и лог — видны на всех экранах -->
+    <div id="status-bar"></div>
+
+    <details id="log-details">
+      <summary>Лог</summary>
+      <textarea id="log" readonly></textarea>
+    </details>
+
+  </div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

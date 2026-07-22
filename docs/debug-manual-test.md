@@ -263,3 +263,117 @@ INF processed outbox task task_id=... user_id=22222222-... platform=ios push_tok
 | Mark read | B | `READ -> 204` |
 | Receive message_read | A | WS-событие в логе |
 | Unread count | B | `0` после прочтения |
+
+ ---
+
+---
+
+# Ручной сценарий проверки Sprint 3 — auth lifecycle
+
+Сценарий: `login → refresh → reuse detection → logout`.
+
+Требования: запущены `auth-proxy` и `main-service`, доступен PostgreSQL.
+
+---
+
+## Sprint 3 — 0) Предварительная настройка
+
+Убедитесь что в разделе **1) Базовые настройки** указаны корректные адреса:
+- **Base URL HTTP** — `http://localhost:8080` (main-service)
+- **Auth URL** — `http://localhost:33081` (auth-proxy)
+
+Токены автоматически сохраняются в `localStorage` при каждом Login / Refresh.
+
+---
+
+## Sprint 3 — 1) Login
+
+1. В разделе **4) Шорткаты — Auth → Login** введите `user_id`:
+   `11111111-1111-1111-1111-111111111111`
+2. Нажмите **Login (сохранить токен)**.
+3. В логе появится:
+   ```
+   AUTH login 11111111-... -> 200 {"access_token":"...","refresh_token":"...","session_id":"..."}
+   AUTH access + refresh token сохранены (localStorage)
+   ```
+4. Поле **Access token** в разделе 1 заполнится автоматически.
+5. Поле **Refresh token** заполнится автоматически.
+6. **Session ID** в разделе 1 отобразит первые 8 символов session_id.
+
+---
+
+## Sprint 3 — 2) Refresh (ротация сессии)
+
+1. Нажмите **Refresh** в разделе **4) Шорткаты — Auth**.
+2. В логе появится:
+   ```
+   AUTH refresh -> 200 {"access_token":"...","refresh_token":"...","session_id":"..."}
+   AUTH новые токены сохранены; старый refresh готов для reuse test
+   ```
+3. Access token и Session ID обновятся на новые значения.
+4. Бейдж **Reuse test** изменится на `есть старый токен`.
+
+---
+
+## Sprint 3 — 3) Reuse test (обнаружение повторного использования)
+
+> После шага 2 у вас есть `prevRefreshToken` — токен, который уже был ротирован.
+
+1. Нажмите **Reuse test** в разделе **4) Шорткаты — Auth**.
+2. Ожидаемый результат в логе:
+   ```
+   AUTH reuse test: повторная отправка старого refresh-токена...
+   AUTH reuse test -> 401 {"error":{"code":"session_compromised","message":"..."}}
+   AUTH ✓ session_compromised — reuse detection сработал, family отозвана
+   AUTH токены очищены (family revoked)
+   ```
+3. Все токены очищаются — вся session family отозвана на сервере.
+4. Проверка в БД:
+   ```sql
+   SELECT id, revoked_at IS NOT NULL AS revoked FROM auth_sessions
+   WHERE user_id = '11111111-1111-1111-1111-111111111111'
+   ORDER BY created_at;
+   ```
+   Все записи должны иметь `revoked = true`.
+
+---
+
+## Sprint 3 — 4) Logout
+
+1. Выполните Login заново (шаг 1).
+2. Нажмите **Logout** в разделе **4) Шорткаты — Auth**.
+3. В логе появится:
+   ```
+   AUTH logout -> 204 сессия отозвана
+   AUTH токены очищены из localStorage
+   ```
+4. Access token и Refresh token очищаются.
+5. Попытка повторного Refresh вернёт `session_revoked`:
+   - Нажмите **Refresh** → логи покажут `session_revoked` или пустое поле (токен уже очищен).
+
+---
+
+## Sprint 3 — 5) Auto-refresh при 401
+
+1. Выполните Login.
+2. В разделе **2) HTTP запрос** выберите `GET`, путь `/api/v1/me/unread-count`.
+3. Нажмите **Отправить + auto-refresh при 401**.
+4. Если access token истёк (TTL 900 сек) — в логе появится:
+   ```
+   AUTH 401 получен — пробуем auto-refresh...
+   AUTH refresh -> 200 {...}
+   AUTH auto-refresh успешен, повторяем запрос
+   HTTP GET /api/v1/me/unread-count -> 200 {...}
+   ```
+
+---
+
+## Sprint 3 — Ожидаемый итог
+
+| Шаг | Ожидание |
+|-----|----------|
+| Login | `200`, токены в localStorage, Session ID показан |
+| Refresh | `200`, новые токены, старый доступен для reuse test |
+| Reuse test | `401 session_compromised`, family отозвана, токены очищены |
+| Logout | `204`, сессия отозвана на сервере, localStorage очищен |
+| Auto-refresh | При 401 автоматически обновляет токены и повторяет запрос |
