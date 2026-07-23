@@ -45,6 +45,7 @@ type messageRepository interface {
 	Create(ctx context.Context, message store.Message) (store.Message, error)
 	GetByID(ctx context.Context, messageID string) (store.Message, error)
 	ListByDialog(ctx context.Context, dialogID string, limit int, before *time.Time) ([]store.Message, error)
+	SetExpiresAt(ctx context.Context, messageID string, expiresAt time.Time) error
 }
 
 type receiptRepository interface {
@@ -95,11 +96,6 @@ func (s *Service) SendMessage(ctx context.Context, message store.Message) (store
 	receiverID, ok := receiverID(dialog, message.SenderID)
 	if !ok {
 		return store.Message{}, ErrForbiddenDialogAccess
-	}
-
-	if s.ttl > 0 {
-		exp := time.Now().UTC().Add(s.ttl)
-		message.ExpiresAt = &exp
 	}
 
 	created, err := s.messages.Create(ctx, message)
@@ -241,6 +237,8 @@ func (s *Service) ListMessages(
 }
 
 // MarkRead отмечает сообщение как прочитанное пользователем.
+// Если задан TTL, при первом прочтении запускает таймер удаления (expires_at = readAt + ttl)
+// и рассылает обоим участникам событие message_ttl_started.
 func (s *Service) MarkRead(ctx context.Context, messageID, userID string, readAt time.Time) error {
 	if readAt.IsZero() {
 		readAt = time.Now().UTC()
@@ -264,7 +262,32 @@ func (s *Service) MarkRead(ctx context.Context, messageID, userID string, readAt
 
 	s.sendBadgeUpdated(ctx, userID)
 
+	// Запускаем TTL при первом прочтении: expires_at = readAt + ttl.
+	// Операция best-effort: ошибка не откатывает MarkRead.
+	if s.ttl > 0 && msg.ExpiresAt == nil {
+		s.startMessageTTL(ctx, msg, userID, readAt)
+	}
+
 	return nil
+}
+
+// startMessageTTL устанавливает expires_at и уведомляет обоих участников диалога.
+func (s *Service) startMessageTTL(ctx context.Context, msg store.Message, readerID string, readAt time.Time) {
+	expiresAt := readAt.Add(s.ttl)
+
+	if err := s.messages.SetExpiresAt(ctx, msg.ID, expiresAt); err != nil {
+		return
+	}
+
+	ttlEvent := hub.NewEvent("message_ttl_started", map[string]any{
+		"message_id": msg.ID,
+		"dialog_id":  msg.DialogID,
+		"expires_at": expiresAt.UTC().Format(time.RFC3339),
+	})
+
+	// Оба участника должны запустить обратный отсчёт.
+	s.notifier.Send(ctx, msg.SenderID, ttlEvent)
+	s.notifier.Send(ctx, readerID, ttlEvent)
 }
 
 // sendBadgeUpdated пересчитывает unread и отправляет badge_updated читателю через WS.

@@ -125,6 +125,21 @@ LIMIT $2`
 	return items, nil
 }
 
+// SetExpiresAt устанавливает expires_at для сообщения при первом прочтении.
+// Идемпотентен: если expires_at уже задан, запрос не меняет строку (WHERE expires_at IS NULL).
+func (r *MessageRepository) SetExpiresAt(ctx context.Context, messageID string, expiresAt time.Time) error {
+	const query = `
+UPDATE messages
+SET expires_at = $2
+WHERE id = $1 AND expires_at IS NULL`
+
+	if _, err := r.poolDB.Exec(ctx, query, messageID, expiresAt); err != nil {
+		return fmt.Errorf("set message expires_at: %w", err)
+	}
+
+	return nil
+}
+
 // ExpiredMessage содержит минимальные данные об истёкшем сообщении для broadcast WS-события.
 type ExpiredMessage struct {
 	ID       string

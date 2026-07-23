@@ -18,6 +18,9 @@ const noTTL = 0 // используется в тестах без TTL
 const (
 	eventMessageRead = "message_read"
 	eventMessageNew  = "message_new"
+
+	userA = "user-a"
+	userB = "user-b"
 )
 
 // --- mock types ---
@@ -34,6 +37,7 @@ type mockMessageRepo struct {
 	createFn       func(ctx context.Context, msg store.Message) (store.Message, error)
 	getByIDFn      func(ctx context.Context, msgID string) (store.Message, error)
 	listByDialogFn func(ctx context.Context, dialogID string, limit int, before *time.Time) ([]store.Message, error)
+	setExpiresAtFn func(ctx context.Context, messageID string, expiresAt time.Time) error
 }
 
 func (m *mockMessageRepo) Create(ctx context.Context, msg store.Message) (store.Message, error) {
@@ -51,6 +55,13 @@ func (m *mockMessageRepo) ListByDialog(
 	before *time.Time,
 ) ([]store.Message, error) {
 	return m.listByDialogFn(ctx, dialogID, limit, before)
+}
+
+func (m *mockMessageRepo) SetExpiresAt(ctx context.Context, messageID string, expiresAt time.Time) error {
+	if m.setExpiresAtFn != nil {
+		return m.setExpiresAtFn(ctx, messageID, expiresAt)
+	}
+	return nil
 }
 
 type mockReceiptRepo struct {
@@ -122,7 +133,7 @@ func TestSendMessage_EmptyBody(t *testing.T) {
 	_, err := svc.SendMessage(context.Background(), store.Message{
 		ID:       "msg-1",
 		DialogID: "dialog-1",
-		SenderID: "user-a",
+		SenderID: userA,
 		Body:     "   ",
 	})
 	if !errors.Is(err, chat.ErrInvalidMessageBody) {
@@ -136,7 +147,7 @@ func TestSendMessage_ForbiddenDialog(t *testing.T) {
 	svc := chat.NewService(
 		&mockDialogRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
-				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+				return store.Dialog{ID: "d1", UserAID: userA, UserBID: userB}, nil
 			},
 		},
 		&mockMessageRepo{},
@@ -165,7 +176,7 @@ func TestSendMessage_ReceiverOffline(t *testing.T) {
 	svc := chat.NewService(
 		&mockDialogRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
-				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+				return store.Dialog{ID: "d1", UserAID: userA, UserBID: userB}, nil
 			},
 		},
 		&mockMessageRepo{
@@ -190,7 +201,7 @@ func TestSendMessage_ReceiverOffline(t *testing.T) {
 	msg, err := svc.SendMessage(context.Background(), store.Message{
 		ID:       "msg-1",
 		DialogID: "d1",
-		SenderID: "user-a",
+		SenderID: userA,
 		Body:     "hello",
 	})
 	if err != nil {
@@ -212,7 +223,7 @@ func TestSendMessage_ReceiverOnline(t *testing.T) {
 	svc := chat.NewService(
 		&mockDialogRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
-				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+				return store.Dialog{ID: "d1", UserAID: userA, UserBID: userB}, nil
 			},
 		},
 		&mockMessageRepo{
@@ -237,7 +248,7 @@ func TestSendMessage_ReceiverOnline(t *testing.T) {
 	_, err := svc.SendMessage(context.Background(), store.Message{
 		ID:       "msg-1",
 		DialogID: "d1",
-		SenderID: "user-a",
+		SenderID: userA,
 		Body:     "hello",
 	})
 	if err != nil {
@@ -270,7 +281,7 @@ func TestMarkRead_NotifiesSender(t *testing.T) {
 				return store.Message{
 					ID:       "msg-1",
 					DialogID: "d1",
-					SenderID: "user-a",
+					SenderID: userA,
 					Body:     "hello",
 				}, nil
 			},
@@ -288,14 +299,14 @@ func TestMarkRead_NotifiesSender(t *testing.T) {
 		noTTL,
 	)
 
-	if err := svc.MarkRead(context.Background(), "msg-1", "user-b", time.Now()); err != nil {
+	if err := svc.MarkRead(context.Background(), "msg-1", userB, time.Now()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Должно быть хотя бы одно событие message_read, адресованное отправителю.
 	var found bool
 	for _, e := range events {
-		if e.userID == "user-a" && e.name == eventMessageRead {
+		if e.userID == userA && e.name == eventMessageRead {
 			found = true
 			break
 		}
@@ -311,7 +322,7 @@ func TestListMessages_ForbiddenDialog(t *testing.T) {
 	svc := chat.NewService(
 		&mockDialogRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
-				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+				return store.Dialog{ID: "d1", UserAID: userA, UserBID: userB}, nil
 			},
 		},
 		&mockMessageRepo{},
@@ -331,13 +342,13 @@ func TestListMessages_Success(t *testing.T) {
 	t.Parallel()
 
 	want := []store.Message{
-		{ID: "msg-1", DialogID: "d1", SenderID: "user-a", Body: "hello"},
+		{ID: "msg-1", DialogID: "d1", SenderID: userA, Body: "hello"},
 	}
 
 	svc := chat.NewService(
 		&mockDialogRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
-				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+				return store.Dialog{ID: "d1", UserAID: userA, UserBID: userB}, nil
 			},
 		},
 		&mockMessageRepo{
@@ -351,7 +362,7 @@ func TestListMessages_Success(t *testing.T) {
 		noTTL,
 	)
 
-	got, err := svc.ListMessages(context.Background(), "user-a", "d1", 10, nil)
+	got, err := svc.ListMessages(context.Background(), userA, "d1", 10, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -376,7 +387,7 @@ func TestUnreadCount(t *testing.T) {
 		noTTL,
 	)
 
-	count, err := svc.UnreadCount(context.Background(), "user-a")
+	count, err := svc.UnreadCount(context.Background(), userA)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -393,7 +404,7 @@ func TestSendMessage_ReceiverOffline_EnqueuesOutbox(t *testing.T) {
 	svc := chat.NewService(
 		&mockDialogRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
-				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+				return store.Dialog{ID: "d1", UserAID: userA, UserBID: userB}, nil
 			},
 		},
 		&mockMessageRepo{
@@ -423,7 +434,7 @@ func TestSendMessage_ReceiverOffline_EnqueuesOutbox(t *testing.T) {
 	_, err := svc.SendMessage(context.Background(), store.Message{
 		ID:       "msg-1",
 		DialogID: "d1",
-		SenderID: "user-a",
+		SenderID: userA,
 		Body:     "hello outbox",
 	})
 	if err != nil {
@@ -436,7 +447,7 @@ func TestSendMessage_ReceiverOffline_EnqueuesOutbox(t *testing.T) {
 	if enqueuedTask.EventType != eventMessageNew {
 		t.Errorf("expected event_type=message_new, got %q", enqueuedTask.EventType)
 	}
-	if enqueuedTask.UserID != "user-b" {
+	if enqueuedTask.UserID != userB {
 		t.Errorf("expected task user_id=user-b (receiver), got %q", enqueuedTask.UserID)
 	}
 	expectedDedupKey := "message_new:msg-1:user-b"
@@ -456,7 +467,7 @@ func TestSendMessage_ReceiverOnline_NoOutbox(t *testing.T) {
 	svc := chat.NewService(
 		&mockDialogRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
-				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+				return store.Dialog{ID: "d1", UserAID: userA, UserBID: userB}, nil
 			},
 		},
 		&mockMessageRepo{
@@ -483,7 +494,7 @@ func TestSendMessage_ReceiverOnline_NoOutbox(t *testing.T) {
 	_, err := svc.SendMessage(context.Background(), store.Message{
 		ID:       "msg-1",
 		DialogID: "d1",
-		SenderID: "user-a",
+		SenderID: userA,
 		Body:     "hello online",
 	})
 	if err != nil {
@@ -504,15 +515,17 @@ func TestBuildPreview_Truncates(t *testing.T) {
 	}
 }
 
-func TestSendMessage_WithTTL_SetsExpiresAt(t *testing.T) {
+func TestSendMessage_ExpiresAtAlwaysNilAtSend(t *testing.T) {
 	t.Parallel()
 
 	var capturedMsg store.Message
 
+	// Даже с TTL > 0 expires_at при отправке должен быть nil:
+	// таймер запускается только при прочтении получателем.
 	svc := chat.NewService(
 		&mockDialogRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
-				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+				return store.Dialog{ID: "d1", UserAID: userA, UserBID: userB}, nil
 			},
 		},
 		&mockMessageRepo{
@@ -530,71 +543,22 @@ func TestSendMessage_WithTTL_SetsExpiresAt(t *testing.T) {
 		5*time.Minute,
 	)
 
-	before := time.Now()
 	_, err := svc.SendMessage(context.Background(), store.Message{
 		ID:       "msg-ttl",
 		DialogID: "d1",
-		SenderID: "user-a",
+		SenderID: userA,
 		Body:     "hello ttl",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if capturedMsg.ExpiresAt == nil {
-		t.Fatal("expected ExpiresAt to be set when TTL > 0")
-	}
-	if !capturedMsg.ExpiresAt.After(before) {
-		t.Errorf("ExpiresAt %v must be after send time %v", *capturedMsg.ExpiresAt, before)
-	}
-	minExp := before.Add(5 * time.Minute)
-	if capturedMsg.ExpiresAt.Before(minExp) {
-		t.Errorf("ExpiresAt %v must be >= now+5min (%v)", *capturedMsg.ExpiresAt, minExp)
-	}
-}
-
-func TestSendMessage_WithoutTTL_ExpiresAtIsNil(t *testing.T) {
-	t.Parallel()
-
-	var capturedMsg store.Message
-
-	svc := chat.NewService(
-		&mockDialogRepo{
-			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
-				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
-			},
-		},
-		&mockMessageRepo{
-			createFn: func(_ context.Context, msg store.Message) (store.Message, error) {
-				capturedMsg = msg
-				msg.CreatedAt = time.Now()
-				return msg, nil
-			},
-		},
-		&mockReceiptRepo{
-			ensureFn: func(_ context.Context, _, _ string) error { return nil },
-		},
-		noopNotifier(),
-		noopOutbox(),
-		noTTL,
-	)
-
-	_, err := svc.SendMessage(context.Background(), store.Message{
-		ID:       "msg-no-ttl",
-		DialogID: "d1",
-		SenderID: "user-a",
-		Body:     "no ttl",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
 	if capturedMsg.ExpiresAt != nil {
-		t.Errorf("expected ExpiresAt to be nil when TTL=0, got %v", *capturedMsg.ExpiresAt)
+		t.Errorf("expected ExpiresAt nil at send time, got %v", *capturedMsg.ExpiresAt)
 	}
 }
 
-func TestSendMessage_WithTTL_IncludesExpiresAtInWSEvent(t *testing.T) {
+func TestSendMessage_MessageNew_ExpiresAtIsNil(t *testing.T) {
 	t.Parallel()
 
 	var receivedEvent hub.Event
@@ -602,7 +566,7 @@ func TestSendMessage_WithTTL_IncludesExpiresAtInWSEvent(t *testing.T) {
 	svc := chat.NewService(
 		&mockDialogRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
-				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+				return store.Dialog{ID: "d1", UserAID: userA, UserBID: userB}, nil
 			},
 		},
 		&mockMessageRepo{
@@ -629,7 +593,7 @@ func TestSendMessage_WithTTL_IncludesExpiresAtInWSEvent(t *testing.T) {
 	_, err := svc.SendMessage(context.Background(), store.Message{
 		ID:       "msg-ws",
 		DialogID: "d1",
-		SenderID: "user-a",
+		SenderID: userA,
 		Body:     "ws ttl test",
 	})
 	if err != nil {
@@ -640,12 +604,193 @@ func TestSendMessage_WithTTL_IncludesExpiresAtInWSEvent(t *testing.T) {
 	if !ok {
 		t.Fatalf("event.Data is not map[string]any: %T", receivedEvent.Data)
 	}
-	expiresAt, exists := data["expires_at"]
-	if !exists {
-		t.Fatal("expected expires_at in message_new WS event")
+	// expires_at должен быть nil в message_new — таймер ещё не запущен
+	expiresAt := data["expires_at"]
+	if expiresAt != nil {
+		t.Errorf("expected expires_at=nil in message_new before read, got %v", expiresAt)
 	}
-	if expiresAt == nil {
-		t.Error("expires_at must not be nil when TTL > 0")
+}
+
+func TestMarkRead_WithTTL_StartsCountdown(t *testing.T) {
+	t.Parallel()
+
+	var capturedExpiresAt time.Time
+
+	svc := chat.NewService(
+		&mockDialogRepo{},
+		&mockMessageRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
+				return store.Message{
+					ID:        "msg-1",
+					DialogID:  "d1",
+					SenderID:  userA,
+					Body:      "hello",
+					ExpiresAt: nil, // ещё не прочитано
+				}, nil
+			},
+			setExpiresAtFn: func(_ context.Context, _ string, expiresAt time.Time) error {
+				capturedExpiresAt = expiresAt
+				return nil
+			},
+		},
+		&mockReceiptRepo{
+			markReadFn: func(_ context.Context, _, _ string, _ time.Time) error { return nil },
+		},
+		noopNotifier(),
+		noopOutbox(),
+		5*time.Minute,
+	)
+
+	readAt := time.Now().UTC()
+	if err := svc.MarkRead(context.Background(), "msg-1", userB, readAt); err != nil {
+		t.Fatalf("MarkRead: %v", err)
+	}
+
+	expected := readAt.Add(5 * time.Minute)
+	if capturedExpiresAt.IsZero() {
+		t.Fatal("expected SetExpiresAt to be called")
+	}
+	// Допускаем 1 секунду погрешности
+	diff := capturedExpiresAt.Sub(expected)
+	if diff < -time.Second || diff > time.Second {
+		t.Errorf("expected expires_at ≈ %v, got %v", expected, capturedExpiresAt)
+	}
+}
+
+func TestMarkRead_WithTTL_SendsTTLStartedEventToBoth(t *testing.T) {
+	t.Parallel()
+
+	type sentEvent struct {
+		userID string
+		name   string
+	}
+	var events []sentEvent
+
+	svc := chat.NewService(
+		&mockDialogRepo{},
+		&mockMessageRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
+				return store.Message{
+					ID:        "msg-1",
+					DialogID:  "d1",
+					SenderID:  userA,
+					Body:      "hello",
+					ExpiresAt: nil,
+				}, nil
+			},
+		},
+		&mockReceiptRepo{
+			markReadFn: func(_ context.Context, _, _ string, _ time.Time) error { return nil },
+		},
+		&mockNotifier{
+			sendFn: func(_ context.Context, userID string, event hub.Event) bool {
+				events = append(events, sentEvent{userID: userID, name: event.Event})
+				return true
+			},
+		},
+		noopOutbox(),
+		5*time.Minute,
+	)
+
+	if err := svc.MarkRead(context.Background(), "msg-1", userB, time.Now()); err != nil {
+		t.Fatalf("MarkRead: %v", err)
+	}
+
+	var senderGotTTL, readerGotTTL bool
+	for _, e := range events {
+		if e.name == "message_ttl_started" {
+			if e.userID == userA {
+				senderGotTTL = true
+			}
+			if e.userID == userB {
+				readerGotTTL = true
+			}
+		}
+	}
+	if !senderGotTTL {
+		t.Error("sender (user-a) must receive message_ttl_started")
+	}
+	if !readerGotTTL {
+		t.Error("reader (user-b) must receive message_ttl_started")
+	}
+}
+
+func TestMarkRead_WithTTL_AlreadyExpiring_NoSecondStart(t *testing.T) {
+	t.Parallel()
+
+	setExpiresAtCalled := false
+	alreadyExpiring := time.Now().UTC().Add(3 * time.Minute)
+
+	svc := chat.NewService(
+		&mockDialogRepo{},
+		&mockMessageRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
+				return store.Message{
+					ID:        "msg-1",
+					DialogID:  "d1",
+					SenderID:  userA,
+					Body:      "hello",
+					ExpiresAt: &alreadyExpiring, // уже прочитано ранее
+				}, nil
+			},
+			setExpiresAtFn: func(_ context.Context, _ string, _ time.Time) error {
+				setExpiresAtCalled = true
+				return nil
+			},
+		},
+		&mockReceiptRepo{
+			markReadFn: func(_ context.Context, _, _ string, _ time.Time) error { return nil },
+		},
+		noopNotifier(),
+		noopOutbox(),
+		5*time.Minute,
+	)
+
+	if err := svc.MarkRead(context.Background(), "msg-1", userB, time.Now()); err != nil {
+		t.Fatalf("MarkRead: %v", err)
+	}
+
+	if setExpiresAtCalled {
+		t.Error("SetExpiresAt must NOT be called if message is already expiring (ExpiresAt != nil)")
+	}
+}
+
+func TestMarkRead_WithoutTTL_NoExpiresAt(t *testing.T) {
+	t.Parallel()
+
+	setExpiresAtCalled := false
+
+	svc := chat.NewService(
+		&mockDialogRepo{},
+		&mockMessageRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
+				return store.Message{
+					ID:        "msg-1",
+					DialogID:  "d1",
+					SenderID:  userA,
+					Body:      "hello",
+					ExpiresAt: nil,
+				}, nil
+			},
+			setExpiresAtFn: func(_ context.Context, _ string, _ time.Time) error {
+				setExpiresAtCalled = true
+				return nil
+			},
+		},
+		&mockReceiptRepo{
+			markReadFn: func(_ context.Context, _, _ string, _ time.Time) error { return nil },
+		},
+		noopNotifier(),
+		noopOutbox(),
+		noTTL,
+	)
+
+	if err := svc.MarkRead(context.Background(), "msg-1", userB, time.Now()); err != nil {
+		t.Fatalf("MarkRead: %v", err)
+	}
+
+	if setExpiresAtCalled {
+		t.Error("SetExpiresAt must NOT be called when TTL=0")
 	}
 }
 
@@ -686,7 +831,7 @@ func TestMarkRead_SendsBadgeUpdatedToReader(t *testing.T) {
 				return store.Message{
 					ID:       "msg-1",
 					DialogID: "d1",
-					SenderID: "user-a",
+					SenderID: userA,
 					Body:     "hello",
 				}, nil
 			},
@@ -707,7 +852,7 @@ func TestMarkRead_SendsBadgeUpdatedToReader(t *testing.T) {
 		noTTL,
 	)
 
-	if err := svc.MarkRead(context.Background(), "msg-1", "user-b", time.Now()); err != nil {
+	if err := svc.MarkRead(context.Background(), "msg-1", userB, time.Now()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -719,7 +864,7 @@ func TestMarkRead_SendsBadgeUpdatedToReader(t *testing.T) {
 	if sent[0].event.Event != eventMessageRead {
 		t.Errorf("expected event[0]=message_read, got %q", sent[0].event.Event)
 	}
-	if sent[0].userID != "user-a" {
+	if sent[0].userID != userA {
 		t.Errorf("expected message_read sent to sender user-a, got %q", sent[0].userID)
 	}
 
@@ -727,7 +872,7 @@ func TestMarkRead_SendsBadgeUpdatedToReader(t *testing.T) {
 	if sent[1].event.Event != "badge_updated" {
 		t.Errorf("expected event[1]=badge_updated, got %q", sent[1].event.Event)
 	}
-	if sent[1].userID != "user-b" {
+	if sent[1].userID != userB {
 		t.Errorf("expected badge_updated sent to reader user-b, got %q", sent[1].userID)
 	}
 

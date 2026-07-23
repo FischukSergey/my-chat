@@ -251,6 +251,70 @@ func TestMessageRepository_ExpireMessages_ListExcludesExpired(t *testing.T) {
 	}
 }
 
+// --- MessageRepository.SetExpiresAt ---
+
+func TestMessageRepository_SetExpiresAt_SetsOnFirstRead(t *testing.T) {
+	s := setupDB(t)
+	ctx := context.Background()
+	userA := insertUser(t, ctx, s)
+	userB := insertUser(t, ctx, s)
+	dialogID := insertDialog(t, ctx, s, userA, userB)
+
+	repo := store.NewMessageRepository(s)
+	m := insertMessage(t, ctx, repo, dialogID, userA, nil) // создаём без TTL
+
+	if m.ExpiresAt != nil {
+		t.Fatalf("expected ExpiresAt nil at creation, got %v", *m.ExpiresAt)
+	}
+
+	exp := time.Now().UTC().Add(5 * time.Minute).Truncate(time.Microsecond)
+	if err := repo.SetExpiresAt(ctx, m.ID, exp); err != nil {
+		t.Fatalf("SetExpiresAt: %v", err)
+	}
+
+	// Проверяем через GetByID
+	got, err := repo.GetByID(ctx, m.ID)
+	if err != nil {
+		t.Fatalf("GetByID after SetExpiresAt: %v", err)
+	}
+	if got.ExpiresAt == nil {
+		t.Fatal("expected ExpiresAt to be set after SetExpiresAt")
+	}
+	if !got.ExpiresAt.Equal(exp) {
+		t.Errorf("ExpiresAt mismatch: want %v, got %v", exp, *got.ExpiresAt)
+	}
+}
+
+func TestMessageRepository_SetExpiresAt_Idempotent(t *testing.T) {
+	s := setupDB(t)
+	ctx := context.Background()
+	userA := insertUser(t, ctx, s)
+	userB := insertUser(t, ctx, s)
+	dialogID := insertDialog(t, ctx, s, userA, userB)
+
+	repo := store.NewMessageRepository(s)
+	m := insertMessage(t, ctx, repo, dialogID, userA, nil)
+
+	first := time.Now().UTC().Add(5 * time.Minute).Truncate(time.Microsecond)
+	if err := repo.SetExpiresAt(ctx, m.ID, first); err != nil {
+		t.Fatalf("first SetExpiresAt: %v", err)
+	}
+
+	// Повторный вызов с другим временем не должен перезаписывать.
+	second := time.Now().UTC().Add(10 * time.Minute).Truncate(time.Microsecond)
+	if err := repo.SetExpiresAt(ctx, m.ID, second); err != nil {
+		t.Fatalf("second SetExpiresAt: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, m.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.ExpiresAt == nil || !got.ExpiresAt.Equal(first) {
+		t.Errorf("expected first expires_at %v to be preserved, got %v", first, got.ExpiresAt)
+	}
+}
+
 // --- UserRepository.FindByID ---
 
 func TestUserRepository_FindByID_Found(t *testing.T) {

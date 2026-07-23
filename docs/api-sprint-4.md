@@ -6,10 +6,13 @@
 
 - TTL задаётся **глобально** через конфиг сервиса (`chat.message_ttl_seconds`); per-dialog политики — вне scope Sprint 4.
 - Таблица `messages` расширяется двумя полями: `expires_at TIMESTAMPTZ NULL` и `deleted_at TIMESTAMPTZ NULL`.
-- `expires_at` вычисляется при создании сообщения: `now() + message_ttl_seconds`; если TTL = 0 — сообщение не истекает (`expires_at = NULL`).
+- **Семантика TTL: "удаление после прочтения"** — `expires_at` устанавливается не при создании, а при **первом прочтении** получателем (`expires_at = read_at + ttl`). До прочтения `expires_at = NULL`.
+- Если TTL = 0 — сообщение не истекает никогда (`expires_at` остаётся `NULL`).
 - **Soft delete**: `message-expirer` проставляет `deleted_at = now()`, физически строку не удаляет.
 - Все запросы `ListMessages` фильтруют `WHERE deleted_at IS NULL`.
+- При прочтении: сервер отправляет WS-событие `message_ttl_started` обоим участникам — таймер запускается синхронно у обоих.
 - При истечении TTL сервер публикует WS-событие `message_deleted` обоим участникам диалога (если онлайн).
+- Если получатель никогда не прочитал сообщение — оно остаётся в БД бессрочно (принудительного hard deadline нет, вне scope Sprint 4).
 - Auth API (`auth-proxy`) и Device API **не меняются** в Sprint 4.
 - Добавляется новый код ошибки `user_inactive` (403) при попытке войти заблокированным пользователем (tech debt из Sprint 3).
 - Добавляется rate-limiting на `POST /api/v1/auth/login` (429 с заголовком `Retry-After`).
@@ -17,10 +20,11 @@
 ## 2) Scope Sprint 4 по контрактам
 
 В Sprint 4 входят:
-- обновлённый контракт `POST /api/v1/dialogs/{dialog_id}/messages` (поле `expires_at` в ответе);
+- обновлённый контракт `POST /api/v1/dialogs/{dialog_id}/messages` (поле `expires_at` в ответе, всегда `null` при создании);
 - обновлённый контракт `GET /api/v1/dialogs/{dialog_id}/messages` (поле `expires_at` в ответе, `deleted_at IS NULL` фильтрация);
+- новое WS-событие `message_ttl_started` (сигнализирует о начале отсчёта после прочтения);
 - новое WS-событие `message_deleted`;
-- обновлённое WS-событие `message_new` (добавлено поле `expires_at`);
+- поле `expires_at` в WS-событии `message_new` всегда `null` (таймер не запущен);
 - новый код ошибки `user_inactive` (403) для `POST /api/v1/auth/login`;
 - rate-limiting на `POST /api/v1/auth/login`.
 
@@ -223,6 +227,36 @@ Response `200`:
 
 ---
 
+### Новое событие `message_ttl_started`
+
+Публикуется сервером при **первом прочтении** сообщения получателем (вызов `MarkRead`).
+Получают **оба** участника диалога — и отправитель, и получатель.
+
+```json
+{
+  "type": "message_ttl_started",
+  "message_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "dialog_id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+  "expires_at": "2026-07-23T14:10:00Z"
+}
+```
+
+Поля:
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `type` | string | Всегда `"message_ttl_started"` |
+| `message_id` | string (UUID) | ID сообщения |
+| `dialog_id` | string (UUID) | ID диалога |
+| `expires_at` | string (RFC3339) | Время истечения (`read_at + ttl`) |
+
+Поведение на клиенте:
+- получив `message_ttl_started` → запустить таймер обратного отсчёта для `message_id`;
+- таймер показывать обоим участникам (и отправителю, и получателю);
+- при `expires_at - now() <= 0` → скрыть пузырь (до `message_deleted` от сервера).
+
+---
+
 ### Существующие события (без изменений)
 
 | Тип | Описание |
@@ -296,6 +330,9 @@ database:
      RETURNING id, dialog_id, sender_id
      LIMIT batch_size
 
+   Примечание: expires_at устанавливается только при прочтении (MarkRead),
+   поэтому непрочитанные сообщения с expires_at = NULL в выборку не попадают.
+
 2. Для каждого dialog_id в expired_messages:
    - получить список user_id участников диалога (из dialogs)
    - для каждого онлайн-участника в Hub:
@@ -313,27 +350,52 @@ database:
 
 ## 11) Поведение клиента — TTL таймер (мобильный)
 
-При получении сообщения (из `ListMessages` или WS `message_new`):
-1. Если `expires_at != null` → вычислить `remaining = expires_at - now()`.
-2. Если `remaining > 0` → запустить таймер (`setInterval`) с обновлением каждую секунду.
-3. Отображать: `expires_at - now()` в формате `MM:SS` или `HH:MM:SS`.
-4. При `remaining <= 0` → скрыть пузырь (клиентское упреждающее удаление).
-5. При получении WS `message_deleted` → отменить таймер, скрыть пузырь.
+### Жизненный цикл сообщения с TTL
 
-Примечание: клиент скрывает пузырь самостоятельно при `remaining <= 0` (упреждающее удаление), не дожидаясь WS события — это устраняет задержку до `expirer.interval_seconds`.
+```
+Отправитель пишет → message_new (expires_at: null)  → без таймера
+Получатель читает → message_read + message_ttl_started (expires_at: T)
+                  → оба участника запускают обратный отсчёт
+T истекает        → message_deleted → оба участника скрывают пузырь
+```
+
+### Алгоритм на клиенте
+
+При получении **`message_new`** (WS) или загрузке **`ListMessages`**:
+1. Если `expires_at != null` → сообщение уже прочитано ранее; запустить таймер от текущего момента.
+2. Если `expires_at == null` → ждать события `message_ttl_started`.
+
+При получении **`message_ttl_started`**:
+1. Найти пузырь с `message_id` в UI.
+2. Запустить таймер (`setInterval`): `remaining = expires_at - now()`, обновление каждую секунду.
+3. Отображать оставшееся время в формате `MM:SS`.
+4. При `remaining <= 0` → скрыть пузырь (упреждающее удаление до прихода `message_deleted`).
+
+При получении **`message_deleted`**:
+1. Отменить активный таймер.
+2. Скрыть пузырь (если ещё не скрыт упреждающим удалением).
+
+Примечание: сообщения без прочтения (`expires_at == null`) остаются в UI бессрочно — таймер не показывается.
 
 ---
 
 ## 12) E2E сценарии (тестовые кейсы)
 
-### Сценарий 1: Сообщение с TTL — оба онлайн
+### Сценарий 1: Полный цикл — отправка → прочтение → удаление
 
 ```
 POST /dialogs/{id}/messages {body: "Привет"}
-  → 201 {message: {id: MSG_ID, expires_at: T+5min}}
+  → 201 {message: {id: MSG_ID, expires_at: null}}  ← таймер не запущен
 
-WS user_a: message_new {id: MSG_ID, expires_at: T+5min}
-WS user_b: message_new {id: MSG_ID, expires_at: T+5min}
+WS user_a: message_new {id: MSG_ID, expires_at: null}
+WS user_b: message_new {id: MSG_ID, expires_at: null}
+
+user_b вызывает POST /messages/MSG_ID/read
+
+WS user_a: message_read {message_id: MSG_ID, ...}
+WS user_a: message_ttl_started {message_id: MSG_ID, expires_at: T+5min}
+WS user_b: message_ttl_started {message_id: MSG_ID, expires_at: T+5min}
+  ← оба участника запускают обратный отсчёт
 
 (через 5 минут + до 10 сек expirer interval)
 
@@ -344,10 +406,22 @@ GET /dialogs/{id}/messages
   → 200 {messages: []}  ← MSG_ID отсутствует
 ```
 
-### Сценарий 2: Reconnect после истечения TTL
+### Сценарий 2: Получатель никогда не прочитал
 
 ```
-user_b был офлайн во время expires_at
+POST /dialogs/{id}/messages {body: "Привет"}
+  → 201 {message: {id: MSG_ID, expires_at: null}}
+
+(через часы/дни — user_b так и не открыл диалог)
+
+GET /dialogs/{id}/messages (от user_b)
+  → 200 {messages: [{id: MSG_ID, expires_at: null}]}  ← сообщение живёт
+```
+
+### Сценарий 3: Reconnect после истечения TTL
+
+```
+user_b прочитал и ушёл офлайн во время expires_at
 
 user_b reconnects WS
 
@@ -378,7 +452,8 @@ POST /auth/login × 11 (с одного IP за 60 сек)
 |-----------|---------------------|--------------------|
 | `POST .../messages` response | без `expires_at` | `expires_at` добавлен (backward compatible) |
 | `GET .../messages` response | без `expires_at` | `expires_at` добавлен (backward compatible) |
-| WS `message_new` | без `expires_at` | `expires_at` добавлен (backward compatible) |
+| WS `message_new` | без `expires_at` | `expires_at` добавлен, всегда `null` при создании (backward compatible) |
+| WS `message_ttl_started` | не существовал | **Новое событие** (клиент без обработки просто игнорирует) |
 | WS `message_deleted` | не существовал | **Новое событие** |
 | `POST /auth/login` | без проверки статуса | добавлена проверка `status = active` |
 | `POST /auth/login` | без rate-limiting | добавлен rate-limiting (429) |
