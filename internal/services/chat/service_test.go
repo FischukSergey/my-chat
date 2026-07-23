@@ -13,6 +13,8 @@ import (
 	"my-chat/internal/store"
 )
 
+const noTTL = 0 // используется в тестах без TTL
+
 const (
 	eventMessageRead = "message_read"
 	eventMessageNew  = "message_new"
@@ -114,6 +116,7 @@ func TestSendMessage_EmptyBody(t *testing.T) {
 		&mockReceiptRepo{},
 		noopNotifier(),
 		noopOutbox(),
+		noTTL,
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
@@ -140,6 +143,7 @@ func TestSendMessage_ForbiddenDialog(t *testing.T) {
 		&mockReceiptRepo{},
 		noopNotifier(),
 		noopOutbox(),
+		noTTL,
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
@@ -180,6 +184,7 @@ func TestSendMessage_ReceiverOffline(t *testing.T) {
 			},
 		},
 		noopOutbox(),
+		noTTL,
 	)
 
 	msg, err := svc.SendMessage(context.Background(), store.Message{
@@ -226,6 +231,7 @@ func TestSendMessage_ReceiverOnline(t *testing.T) {
 			},
 		},
 		noopOutbox(),
+		noTTL,
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
@@ -279,6 +285,7 @@ func TestMarkRead_NotifiesSender(t *testing.T) {
 			},
 		},
 		noopOutbox(),
+		noTTL,
 	)
 
 	if err := svc.MarkRead(context.Background(), "msg-1", "user-b", time.Now()); err != nil {
@@ -311,6 +318,7 @@ func TestListMessages_ForbiddenDialog(t *testing.T) {
 		&mockReceiptRepo{},
 		noopNotifier(),
 		noopOutbox(),
+		noTTL,
 	)
 
 	_, err := svc.ListMessages(context.Background(), "intruder", "d1", 10, nil)
@@ -340,6 +348,7 @@ func TestListMessages_Success(t *testing.T) {
 		&mockReceiptRepo{},
 		noopNotifier(),
 		noopOutbox(),
+		noTTL,
 	)
 
 	got, err := svc.ListMessages(context.Background(), "user-a", "d1", 10, nil)
@@ -364,6 +373,7 @@ func TestUnreadCount(t *testing.T) {
 		},
 		noopNotifier(),
 		noopOutbox(),
+		noTTL,
 	)
 
 	count, err := svc.UnreadCount(context.Background(), "user-a")
@@ -407,6 +417,7 @@ func TestSendMessage_ReceiverOffline_EnqueuesOutbox(t *testing.T) {
 				return nil
 			},
 		},
+		noTTL,
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
@@ -466,6 +477,7 @@ func TestSendMessage_ReceiverOnline_NoOutbox(t *testing.T) {
 				return nil
 			},
 		},
+		noTTL,
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
@@ -489,6 +501,151 @@ func TestBuildPreview_Truncates(t *testing.T) {
 	got := chat.BuildPreview(long)
 	if len([]rune(got)) != 120 {
 		t.Errorf("expected 120 runes, got %d", len([]rune(got)))
+	}
+}
+
+func TestSendMessage_WithTTL_SetsExpiresAt(t *testing.T) {
+	t.Parallel()
+
+	var capturedMsg store.Message
+
+	svc := chat.NewService(
+		&mockDialogRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
+				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+			},
+		},
+		&mockMessageRepo{
+			createFn: func(_ context.Context, msg store.Message) (store.Message, error) {
+				capturedMsg = msg
+				msg.CreatedAt = time.Now()
+				return msg, nil
+			},
+		},
+		&mockReceiptRepo{
+			ensureFn: func(_ context.Context, _, _ string) error { return nil },
+		},
+		noopNotifier(),
+		noopOutbox(),
+		5*time.Minute,
+	)
+
+	before := time.Now()
+	_, err := svc.SendMessage(context.Background(), store.Message{
+		ID:       "msg-ttl",
+		DialogID: "d1",
+		SenderID: "user-a",
+		Body:     "hello ttl",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedMsg.ExpiresAt == nil {
+		t.Fatal("expected ExpiresAt to be set when TTL > 0")
+	}
+	if !capturedMsg.ExpiresAt.After(before) {
+		t.Errorf("ExpiresAt %v must be after send time %v", *capturedMsg.ExpiresAt, before)
+	}
+	minExp := before.Add(5 * time.Minute)
+	if capturedMsg.ExpiresAt.Before(minExp) {
+		t.Errorf("ExpiresAt %v must be >= now+5min (%v)", *capturedMsg.ExpiresAt, minExp)
+	}
+}
+
+func TestSendMessage_WithoutTTL_ExpiresAtIsNil(t *testing.T) {
+	t.Parallel()
+
+	var capturedMsg store.Message
+
+	svc := chat.NewService(
+		&mockDialogRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
+				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+			},
+		},
+		&mockMessageRepo{
+			createFn: func(_ context.Context, msg store.Message) (store.Message, error) {
+				capturedMsg = msg
+				msg.CreatedAt = time.Now()
+				return msg, nil
+			},
+		},
+		&mockReceiptRepo{
+			ensureFn: func(_ context.Context, _, _ string) error { return nil },
+		},
+		noopNotifier(),
+		noopOutbox(),
+		noTTL,
+	)
+
+	_, err := svc.SendMessage(context.Background(), store.Message{
+		ID:       "msg-no-ttl",
+		DialogID: "d1",
+		SenderID: "user-a",
+		Body:     "no ttl",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedMsg.ExpiresAt != nil {
+		t.Errorf("expected ExpiresAt to be nil when TTL=0, got %v", *capturedMsg.ExpiresAt)
+	}
+}
+
+func TestSendMessage_WithTTL_IncludesExpiresAtInWSEvent(t *testing.T) {
+	t.Parallel()
+
+	var receivedEvent hub.Event
+
+	svc := chat.NewService(
+		&mockDialogRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
+				return store.Dialog{ID: "d1", UserAID: "user-a", UserBID: "user-b"}, nil
+			},
+		},
+		&mockMessageRepo{
+			createFn: func(_ context.Context, msg store.Message) (store.Message, error) {
+				msg.CreatedAt = time.Now()
+				return msg, nil
+			},
+		},
+		&mockReceiptRepo{
+			ensureFn: func(_ context.Context, _, _ string) error { return nil },
+		},
+		&mockNotifier{
+			sendFn: func(_ context.Context, _ string, event hub.Event) bool {
+				if event.Event == "message_new" {
+					receivedEvent = event
+				}
+				return false
+			},
+		},
+		noopOutbox(),
+		5*time.Minute,
+	)
+
+	_, err := svc.SendMessage(context.Background(), store.Message{
+		ID:       "msg-ws",
+		DialogID: "d1",
+		SenderID: "user-a",
+		Body:     "ws ttl test",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, ok := receivedEvent.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("event.Data is not map[string]any: %T", receivedEvent.Data)
+	}
+	expiresAt, exists := data["expires_at"]
+	if !exists {
+		t.Fatal("expected expires_at in message_new WS event")
+	}
+	if expiresAt == nil {
+		t.Error("expires_at must not be nil when TTL > 0")
 	}
 }
 
@@ -547,6 +704,7 @@ func TestMarkRead_SendsBadgeUpdatedToReader(t *testing.T) {
 			},
 		},
 		noopOutbox(),
+		noTTL,
 	)
 
 	if err := svc.MarkRead(context.Background(), "msg-1", "user-b", time.Now()); err != nil {

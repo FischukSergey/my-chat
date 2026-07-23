@@ -9,6 +9,7 @@ type Config struct {
 	Database           DatabaseConfig           `yaml:"database"`
 	JWT                JWTConfig                `yaml:"jwt"`
 	NotificationWorker NotificationWorkerConfig `yaml:"notification_worker"`
+	Chat               ChatConfig               `yaml:"chat"`
 }
 
 // GlobalConfig хранит глобальные параметры окружения.
@@ -70,4 +71,10 @@ type NotificationWorkerConfig struct {
 	MaxAttempts         int    `yaml:"max_attempts" validate:"omitempty,min=1"`
 	BackoffBaseSeconds  int    `yaml:"backoff_base_seconds" validate:"omitempty,min=1"`
 	Provider            string `yaml:"provider" validate:"omitempty,oneof=dev-log noop"`
+}
+
+// ChatConfig хранит параметры сервиса чата.
+type ChatConfig struct {
+	// MessageTTLSeconds — время жизни сообщения в секундах; 0 = TTL не используется.
+	MessageTTLSeconds int `yaml:"message_ttl_seconds" validate:"omitempty,min=0"`
 }

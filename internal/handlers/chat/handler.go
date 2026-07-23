@@ -42,11 +42,12 @@ type sendMessageRequest struct {
 }
 
 type messageResponse struct {
-	ID        string `json:"id"`
-	DialogID  string `json:"dialog_id"`
-	SenderID  string `json:"sender_id"`
-	Body      string `json:"body"`
-	CreatedAt string `json:"created_at"`
+	ID        string  `json:"id"`
+	DialogID  string  `json:"dialog_id"`
+	SenderID  string  `json:"sender_id"`
+	Body      string  `json:"body"`
+	CreatedAt string  `json:"created_at"`
+	ExpiresAt *string `json:"expires_at"`
 }
 
 type sendMessageResponse struct {
@@ -220,12 +221,19 @@ func parseUUIDParam(w http.ResponseWriter, r *http.Request, param string) (strin
 }
 
 func toMessageResponse(m store.Message) messageResponse {
+	var expiresAt *string
+	if m.ExpiresAt != nil {
+		s := m.ExpiresAt.UTC().Format(time.RFC3339)
+		expiresAt = &s
+	}
+
 	return messageResponse{
 		ID:        m.ID,
 		DialogID:  m.DialogID,
 		SenderID:  m.SenderID,
 		Body:      m.Body,
 		CreatedAt: m.CreatedAt.Format(time.RFC3339),
+		ExpiresAt: expiresAt,
 	}
 }
 

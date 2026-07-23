@@ -2,6 +2,13 @@ package store
 
 import "time"
 
+// User представляет пользователя системы.
+type User struct {
+	ID        string
+	Status    string // "active" | "blocked"
+	CreatedAt time.Time
+}
+
 // AuthSession представляет server-side запись refresh-сессии пользователя.
 type AuthSession struct {
 	ID          string
@@ -30,6 +37,8 @@ type Message struct {
 	SenderID  string
 	Body      string
 	CreatedAt time.Time
+	ExpiresAt *time.Time // NULL — сообщение не истекает
+	DeletedAt *time.Time // NULL — сообщение активно; soft delete
 }
 
 // Device представляет зарегистрированное устройство пользователя для push-уведомлений.

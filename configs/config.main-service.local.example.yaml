@@ -18,3 +18,6 @@ jwt:
   secret: local-dev-secret-change-in-prod
   access_token_ttl_seconds: 900
   refresh_token_ttl_seconds: 604800
+
+chat:
+  message_ttl_seconds: 300  # 5 минут; 0 = TTL не используется

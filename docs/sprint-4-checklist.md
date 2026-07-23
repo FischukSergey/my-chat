@@ -8,49 +8,57 @@
 
 ## 1) Подготовка и контракты
 
-- [ ] Утвердить модель TTL: глобальный конфиг vs политика диалога (на Sprint 4 — глобальный конфиг).
-- [ ] Утвердить поля `expires_at TIMESTAMPTZ NULL` и `deleted_at TIMESTAMPTZ NULL` в `messages`.
-- [ ] Утвердить формат события `message_deleted` (payload: `{type, message_id, dialog_id}`).
-- [ ] Утвердить формат TTL в `SendMessage` API: включать `expires_at` в ответ и в `message_new` WS-событие.
-- [ ] Утвердить интервал тикера `message-expirer` (по умолчанию: 10 сек).
-- [ ] Подготовить `docs/api-sprint-4.md` с обновлёнными контрактами.
+- [x] Утвердить модель TTL: глобальный конфиг vs политика диалога (на Sprint 4 — глобальный конфиг).
+- [x] Утвердить поля `expires_at TIMESTAMPTZ NULL` и `deleted_at TIMESTAMPTZ NULL` в `messages`.
+- [x] Утвердить формат события `message_deleted` (payload: `{type, message_id, dialog_id}`).
+- [x] Утвердить формат TTL в `SendMessage` API: включать `expires_at` в ответ и в `message_new` WS-событие.
+- [x] Утвердить интервал тикера `message-expirer` (по умолчанию: 10 сек).
+- [x] Подготовить `docs/api-sprint-4.md` с обновлёнными контрактами.
+
+Примечание: все решения зафиксированы в `docs/api-sprint-4.md`. TTL — глобальный конфиг `chat.message_ttl_seconds` (0 = без TTL). Таблица `messages` расширяется полями `expires_at` и `deleted_at` (soft delete). WS событие `message_deleted` содержит `{type, message_id, dialog_id}`. `message_new` расширен полем `expires_at`. Тикер expirer — 10 сек (`expirer.interval_seconds`). Rate-limiting на login: 10 req/60 sec/IP → 429. Новый код ошибки `user_inactive` (403).
 
 ---
 
 ## 2) База данных и миграции
 
-- [ ] Создать миграцию `internal/store/migrations/008_message_ttl.sql`:
+- [x] Создать миграцию `internal/store/migrations/008_message_ttl.sql`:
   - добавить `expires_at TIMESTAMPTZ NULL` в `messages`;
   - добавить `deleted_at TIMESTAMPTZ NULL` в `messages`;
   - добавить индекс `idx_messages_expires_at` (`expires_at`) WHERE `deleted_at IS NULL`.
-- [ ] Обновить модель `Message` в `internal/store/models.go` (поля `ExpiresAt`, `DeletedAt`).
-- [ ] Проверить миграции на чистой БД и при повторном запуске (идемпотентность).
+- [x] Обновить модель `Message` в `internal/store/models.go` (поля `ExpiresAt`, `DeletedAt`).
+- [x] Проверить миграции на чистой БД и при повторном запуске (идемпотентность).
+
+Примечание: миграция `008_message_ttl.sql` применена автоматически при `task local:up` (auto_migrate). Повторный прогон — ни ошибок, ни NOTICE (полная идемпотентность: `ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`). Схема проверена через `\d messages` — оба поля и частичный индекс присутствуют. `go build ./internal/store/...` — OK.
 
 ---
 
 ## 3) Store-слой (`internal/store/`)
 
-- [ ] Обновить `MessageRepository.Create` — принимать и сохранять `expires_at`.
-- [ ] Обновить `MessageRepository.List` — фильтровать `WHERE deleted_at IS NULL`.
-- [ ] Добавить `MessageRepository.ExpireMessages(ctx, now time.Time) ([]ExpiredMessage, error)` — batch UPDATE:
+- [x] Обновить `MessageRepository.Create` — принимать и сохранять `expires_at`.
+- [x] Обновить `MessageRepository.List` — фильтровать `WHERE deleted_at IS NULL`.
+- [x] Добавить `MessageRepository.ExpireMessages(ctx, now time.Time) ([]ExpiredMessage, error)` — batch UPDATE:
   ```sql
   UPDATE messages
   SET deleted_at = $1
   WHERE expires_at <= $1 AND deleted_at IS NULL
   RETURNING id, dialog_id, sender_id
   ```
-- [ ] Добавить `UserRepository.FindByID(ctx, userID) (*User, error)` — для проверки статуса при login (tech debt).
-- [ ] Добавить integration-тесты для новых методов репозитория.
+- [x] Добавить `UserRepository.FindByID(ctx, userID) (*User, error)` — для проверки статуса при login (tech debt).
+- [x] Добавить integration-тесты для новых методов репозитория.
+
+Примечание: `MessageRepository.Create` расширен полем `expires_at` (передаётся как `*time.Time`, NULL при отсутствии TTL). `ListByDialog` и `GetByID` фильтруют `WHERE deleted_at IS NULL` и возвращают `expires_at`. `ExpireMessages` использует CTE с `FOR UPDATE SKIP LOCKED` + `LIMIT batch_size` (PostgreSQL не поддерживает LIMIT в UPDATE напрямую). Создан `UserRepository` с `FindByID` и `ErrUserNotFound`. Модель `User` добавлена в `models.go`. Добавлен `message_repository_integration_test.go` — 8 тестов (Create с/без TTL, List исключает deleted, ExpireMessages помечает expired, идемпотентность, List после expire, UserRepository Find/NotFound). `task lint` — 0 issues. `task test:integration` — все PASS.
 
 ---
 
 ## 4) Chat service (`internal/services/chat/`)
 
-- [ ] Обновить `SendMessage` — вычислять `expires_at = now() + ttl` из конфига, передавать в `MessageRepository.Create`.
-- [ ] Включать `expires_at` в `message_new` WS-событие (Hub broadcast).
-- [ ] Включать `expires_at` в ответ REST `POST /api/v1/dialogs/{dialog_id}/messages`.
-- [ ] Обновить `ListMessages` — поле `expires_at` в ответе.
-- [ ] Добавить unit-тесты обновлённого `SendMessage`.
+- [x] Обновить `SendMessage` — вычислять `expires_at = now() + ttl` из конфига, передавать в `MessageRepository.Create`.
+- [x] Включать `expires_at` в `message_new` WS-событие (Hub broadcast).
+- [x] Включать `expires_at` в ответ REST `POST /api/v1/dialogs/{dialog_id}/messages`.
+- [x] Обновить `ListMessages` — поле `expires_at` в ответе.
+- [x] Добавить unit-тесты обновлённого `SendMessage`.
+
+Примечание: добавлен `ChatConfig{MessageTTLSeconds}` в `config.go` + поле `Chat ChatConfig` в `Config`. `Service` получил поле `ttl time.Duration`; `NewService` расширен 6-м аргументом. В `SendMessage`: если `ttl > 0` → `message.ExpiresAt = now() + ttl`. В `notifyNewMessage`: `message_new` WS-событие включает поле `expires_at` (nil когда TTL не задан). Хендлер: `messageResponse` расширен `ExpiresAt *string`, `toMessageResponse` форматирует `*time.Time → *string`. `app.go`: TTL читается из `cfg.Chat.MessageTTLSeconds`. Конфиг `config.main-service.local.example.yaml` — добавлена секция `chat`. Все 12 вызовов `NewService` в тестах обновлены. Добавлено 3 новых unit-теста: TTL устанавливает ExpiresAt, без TTL ExpiresAt nil, WS-событие содержит expires_at. `go build ./...` — OK. `task lint` — 0 issues. `task test:integration` — все PASS.
 
 ---
 

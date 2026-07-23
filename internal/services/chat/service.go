@@ -34,6 +34,7 @@ type Service struct {
 	receipts receiptRepository
 	notifier notifier
 	outbox   outboxPublisher
+	ttl      time.Duration // 0 = сообщения не истекают
 }
 
 type dialogRepository interface {
@@ -61,12 +62,14 @@ type outboxPublisher interface {
 }
 
 // NewService создает сервис чата.
+// ttl задаёт время жизни сообщений; 0 — без TTL.
 func NewService(
 	dialogs dialogRepository,
 	messages messageRepository,
 	receipts receiptRepository,
 	n notifier,
 	outbox outboxPublisher,
+	ttl time.Duration,
 ) *Service {
 	return &Service{
 		dialogs:  dialogs,
@@ -74,6 +77,7 @@ func NewService(
 		receipts: receipts,
 		notifier: n,
 		outbox:   outbox,
+		ttl:      ttl,
 	}
 }
 
@@ -93,6 +97,11 @@ func (s *Service) SendMessage(ctx context.Context, message store.Message) (store
 		return store.Message{}, ErrForbiddenDialogAccess
 	}
 
+	if s.ttl > 0 {
+		exp := time.Now().UTC().Add(s.ttl)
+		message.ExpiresAt = &exp
+	}
+
 	created, err := s.messages.Create(ctx, message)
 	if err != nil {
 		return store.Message{}, fmt.Errorf("create message: %w", err)
@@ -108,13 +117,16 @@ func (s *Service) SendMessage(ctx context.Context, message store.Message) (store
 }
 
 func (s *Service) notifyNewMessage(ctx context.Context, msg store.Message, receiverID string) {
-	newEvent := hub.NewEvent("message_new", map[string]any{
+	payload := map[string]any{
 		"message_id": msg.ID,
 		"dialog_id":  msg.DialogID,
 		"sender_id":  msg.SenderID,
 		"body":       msg.Body,
 		"created_at": msg.CreatedAt.UTC().Format(time.RFC3339),
-	})
+		"expires_at": formatOptionalTime(msg.ExpiresAt),
+	}
+
+	newEvent := hub.NewEvent("message_new", payload)
 
 	receiverOnline := s.notifier.Send(ctx, receiverID, newEvent)
 	if !receiverOnline {
@@ -290,4 +302,13 @@ func receiverID(dialog store.Dialog, userID string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// formatOptionalTime форматирует *time.Time в RFC3339 строку или nil.
+func formatOptionalTime(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+
+	return t.UTC().Format(time.RFC3339)
 }

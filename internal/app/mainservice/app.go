@@ -84,7 +84,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	log.Info("инициализированы репозитории хранилища", slog.Int("repositories_count", 5))
 
 	connHub := hub.New(log)
-	chatSvc := chatservice.NewService(dialogRepo, messageRepo, receiptRepo, connHub, outboxRepo)
+	messageTTL := time.Duration(cfg.Chat.MessageTTLSeconds) * time.Second
+	chatSvc := chatservice.NewService(dialogRepo, messageRepo, receiptRepo, connHub, outboxRepo, messageTTL)
 	deviceSvc := deviceservice.NewService(deviceRepo)
 	chatHandler := chathandler.New(chatSvc)
 	deviceHandler := devicehandler.New(deviceSvc)

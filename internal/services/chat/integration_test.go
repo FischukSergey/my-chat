@@ -60,7 +60,7 @@ func TestIntegration_SendListReadUnread(t *testing.T) {
 		t.Fatalf("create dialog: %v", err)
 	}
 
-	svc := chat.NewService(dialogRepo, messageRepo, receiptRepo, noopNotifier(), noopOutbox())
+	svc := chat.NewService(dialogRepo, messageRepo, receiptRepo, noopNotifier(), noopOutbox(), 0)
 
 	// Step 1: send message from userA.
 	msg, err := svc.SendMessage(ctx, store.Message{
@@ -159,7 +159,7 @@ func TestIntegration_OfflineRecipient_OutboxTaskCreated(t *testing.T) {
 	}
 
 	// noopNotifier always returns false (receiver offline) — triggers outbox path.
-	svc := chat.NewService(dialogRepo, messageRepo, receiptRepo, noopNotifier(), outboxRepo)
+	svc := chat.NewService(dialogRepo, messageRepo, receiptRepo, noopNotifier(), outboxRepo, 0)
 
 	msgID := uuid.NewString()
 	_, err = svc.SendMessage(ctx, store.Message{
@@ -254,7 +254,7 @@ func TestIntegration_ReadSynchronizesUnreadBadge(t *testing.T) {
 		t.Fatalf("create dialog: %v", err)
 	}
 
-	svc := chat.NewService(dialogRepo, messageRepo, receiptRepo, noopNotifier(), noopOutbox())
+	svc := chat.NewService(dialogRepo, messageRepo, receiptRepo, noopNotifier(), noopOutbox(), 0)
 
 	// Send 3 messages from A.
 	var lastMsgID string

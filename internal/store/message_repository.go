@@ -19,9 +19,9 @@ func NewMessageRepository(s *Store) *MessageRepository {
 // Create вставляет новое сообщение.
 func (r *MessageRepository) Create(ctx context.Context, message Message) (Message, error) {
 	const query = `
-INSERT INTO messages (id, dialog_id, sender_id, body)
-VALUES ($1, $2, $3, $4)
-RETURNING id, dialog_id, sender_id, body, created_at`
+INSERT INTO messages (id, dialog_id, sender_id, body, expires_at)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, dialog_id, sender_id, body, created_at, expires_at`
 
 	var created Message
 	if err := r.poolDB.QueryRow(
@@ -31,12 +31,14 @@ RETURNING id, dialog_id, sender_id, body, created_at`
 		message.DialogID,
 		message.SenderID,
 		message.Body,
+		message.ExpiresAt,
 	).Scan(
 		&created.ID,
 		&created.DialogID,
 		&created.SenderID,
 		&created.Body,
 		&created.CreatedAt,
+		&created.ExpiresAt,
 	); err != nil {
 		return Message{}, fmt.Errorf("insert message: %w", err)
 	}
@@ -47,9 +49,9 @@ RETURNING id, dialog_id, sender_id, body, created_at`
 // GetByID возвращает сообщение по его идентификатору.
 func (r *MessageRepository) GetByID(ctx context.Context, messageID string) (Message, error) {
 	const query = `
-SELECT id, dialog_id, sender_id, body, created_at
+SELECT id, dialog_id, sender_id, body, created_at, expires_at
 FROM messages
-WHERE id = $1`
+WHERE id = $1 AND deleted_at IS NULL`
 
 	var message Message
 	if err := r.poolDB.QueryRow(ctx, query, messageID).Scan(
@@ -58,6 +60,7 @@ WHERE id = $1`
 		&message.SenderID,
 		&message.Body,
 		&message.CreatedAt,
+		&message.ExpiresAt,
 	); err != nil {
 		return Message{}, fmt.Errorf("get message by id: %w", err)
 	}
@@ -65,19 +68,19 @@ WHERE id = $1`
 	return message, nil
 }
 
-// ListByDialog возвращает список сообщений для диалога с пагинацией.
+// ListByDialog возвращает список активных сообщений для диалога с пагинацией.
 func (r *MessageRepository) ListByDialog(ctx context.Context, dialogID string, limit int, before *time.Time) ([]Message, error) {
 	const queryWithBefore = `
-SELECT id, dialog_id, sender_id, body, created_at
+SELECT id, dialog_id, sender_id, body, created_at, expires_at
 FROM messages
-WHERE dialog_id = $1 AND created_at < $2
+WHERE dialog_id = $1 AND created_at < $2 AND deleted_at IS NULL
 ORDER BY created_at DESC
 LIMIT $3`
 
 	const queryWithoutBefore = `
-SELECT id, dialog_id, sender_id, body, created_at
+SELECT id, dialog_id, sender_id, body, created_at, expires_at
 FROM messages
-WHERE dialog_id = $1
+WHERE dialog_id = $1 AND deleted_at IS NULL
 ORDER BY created_at DESC
 LIMIT $2`
 
@@ -107,6 +110,7 @@ LIMIT $2`
 			&message.SenderID,
 			&message.Body,
 			&message.CreatedAt,
+			&message.ExpiresAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan message row: %w", err)
 		}
@@ -119,6 +123,54 @@ LIMIT $2`
 	}
 
 	return items, nil
+}
+
+// ExpiredMessage содержит минимальные данные об истёкшем сообщении для broadcast WS-события.
+type ExpiredMessage struct {
+	ID       string
+	DialogID string
+	SenderID string
+}
+
+// ExpireMessages проставляет deleted_at для всех сообщений с истёкшим expires_at
+// и возвращает список затронутых сообщений для broadcast WS-события message_deleted.
+// Метод идемпотентен: повторный вызов с тем же now не затронет уже помеченные записи.
+// batchSize ограничивает число обрабатываемых сообщений за одну итерацию.
+func (r *MessageRepository) ExpireMessages(ctx context.Context, now time.Time, batchSize int) ([]ExpiredMessage, error) {
+	// PostgreSQL не поддерживает LIMIT в UPDATE напрямую — используем CTE.
+	const query = `
+WITH to_expire AS (
+    SELECT id FROM messages
+    WHERE expires_at <= $1 AND deleted_at IS NULL
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+)
+UPDATE messages
+SET deleted_at = $1
+FROM to_expire
+WHERE messages.id = to_expire.id
+RETURNING messages.id, messages.dialog_id, messages.sender_id`
+
+	rows, err := r.poolDB.Query(ctx, query, now, batchSize)
+	if err != nil {
+		return nil, fmt.Errorf("expire messages: %w", err)
+	}
+	defer rows.Close()
+
+	var expired []ExpiredMessage
+	for rows.Next() {
+		var m ExpiredMessage
+		if err = rows.Scan(&m.ID, &m.DialogID, &m.SenderID); err != nil {
+			return nil, fmt.Errorf("scan expired message row: %w", err)
+		}
+		expired = append(expired, m)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate expired message rows: %w", err)
+	}
+
+	return expired, nil
 }
 
 type anyRows interface {
