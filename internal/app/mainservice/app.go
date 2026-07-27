@@ -22,15 +22,22 @@ import (
 	mw "my-chat/internal/middleware"
 	chatservice "my-chat/internal/services/chat"
 	deviceservice "my-chat/internal/services/device"
+	"my-chat/internal/services/wsdelivery"
 	"my-chat/internal/store"
+)
+
+const (
+	wsDeliveryPollInterval = 5 * time.Second
+	wsDeliveryBatchSize    = 50
 )
 
 // App инкапсулирует зависимости и жизненный цикл HTTP сервера.
 type App struct {
-	cfg    config.Config
-	logger *slog.Logger
-	server *http.Server
-	store  *store.Store
+	cfg        config.Config
+	logger     *slog.Logger
+	server     *http.Server
+	store      *store.Store
+	wsDelivery *wsdelivery.Delivery
 }
 
 // New создает экземпляр приложения и инициализирует config/logger/server.
@@ -81,7 +88,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	receiptRepo := store.NewReceiptRepository(postgresStore)
 	deviceRepo := store.NewDeviceRepository(postgresStore)
 	outboxRepo := store.NewNotificationOutboxRepository(postgresStore)
-	log.Info("инициализированы репозитории хранилища", slog.Int("repositories_count", 5))
+	wsOutboxRepo := store.NewWSEventOutboxRepository(postgresStore)
+	log.Info("инициализированы репозитории хранилища", slog.Int("repositories_count", 6))
 
 	connHub := hub.New(log)
 	messageTTL := time.Duration(cfg.Chat.MessageTTLSeconds) * time.Second
@@ -90,6 +98,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	chatHandler := chathandler.New(chatSvc)
 	deviceHandler := devicehandler.New(deviceSvc)
 	wsHandler := wshandler.New(connHub, cfg.JWT.Secret, log)
+	wsDelivery := wsdelivery.New(wsOutboxRepo, connHub, log, wsDeliveryBatchSize)
 
 	router := chi.NewRouter()
 	router.Use(corsMiddleware)
@@ -117,10 +126,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	return &App{
-		cfg:    cfg,
-		logger: log,
-		server: server,
-		store:  postgresStore,
+		cfg:        cfg,
+		logger:     log,
+		server:     server,
+		store:      postgresStore,
+		wsDelivery: wsDelivery,
 	}, nil
 }
 
@@ -130,6 +140,9 @@ func (a *App) Run(ctx context.Context) error {
 		a.store.Close()
 		a.logger.Info("подключение к PostgreSQL закрыто")
 	}()
+
+	// Горутина доставки WS-событий из outbox подключённым клиентам.
+	go a.wsDelivery.Run(ctx, wsDeliveryPollInterval)
 
 	errCh := make(chan error, 1)
 

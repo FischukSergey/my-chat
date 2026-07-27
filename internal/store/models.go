@@ -65,6 +65,16 @@ const (
 	OutboxStatusFailed NotificationOutboxStatus = "failed"
 )
 
+// WSEventOutbox представляет WS-событие, ожидающее доставки конкретному пользователю.
+type WSEventOutbox struct {
+	ID          string
+	EventType   string
+	UserID      string
+	Payload     []byte     // JSONB
+	ProcessedAt *time.Time // NULL — событие ещё не обработано
+	CreatedAt   time.Time
+}
+
 // NotificationOutbox представляет задачу на отправку push-уведомления.
 type NotificationOutbox struct {
 	ID            string

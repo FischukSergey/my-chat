@@ -169,18 +169,35 @@ func TestMessageRepository_ExpireMessages_MarksExpired(t *testing.T) {
 	if len(result) < 1 {
 		t.Fatal("expected at least 1 expired message")
 	}
+
+	assertExpiredMessageParticipants := func(t *testing.T, m store.ExpiredMessage) {
+		t.Helper()
+		if m.DialogID != dialogID {
+			t.Errorf("DialogID mismatch: want %q, got %q", dialogID, m.DialogID)
+		}
+		if m.UserAID == "" {
+			t.Error("expected UserAID to be non-empty")
+		}
+		if m.UserBID == "" {
+			t.Error("expected UserBID to be non-empty")
+		}
+		if m.UserAID != userA && m.UserAID != userB {
+			t.Errorf("UserAID %q is not one of the dialog participants", m.UserAID)
+		}
+		if m.UserBID != userA && m.UserBID != userB {
+			t.Errorf("UserBID %q is not one of the dialog participants", m.UserBID)
+		}
+	}
+
 	var foundExpired bool
 	for _, m := range result {
-		if m.ID == expired.ID {
+		switch m.ID {
+		case expired.ID:
 			foundExpired = true
-			if m.DialogID != dialogID {
-				t.Errorf("DialogID mismatch: want %q, got %q", dialogID, m.DialogID)
-			}
-		}
-		if m.ID == future.ID {
+			assertExpiredMessageParticipants(t, m)
+		case future.ID:
 			t.Errorf("future message %q must not be expired", future.ID)
-		}
-		if m.ID == noTTL.ID {
+		case noTTL.ID:
 			t.Errorf("no-TTL message %q must not be expired", noTTL.ID)
 		}
 	}

@@ -11,6 +11,13 @@ import (
 	"github.com/coder/websocket"
 )
 
+// Типы WS-событий.
+const (
+	// EventMessageDeleted — событие мягкого удаления сообщения по истечении TTL.
+	// Payload: {"type": "message_deleted", "message_id": "...", "dialog_id": "..."}.
+	EventMessageDeleted = "message_deleted"
+)
+
 // Event представляет WebSocket-событие, отправляемое клиенту.
 type Event struct {
 	Event string `json:"event"`

@@ -145,26 +145,38 @@ type ExpiredMessage struct {
 	ID       string
 	DialogID string
 	SenderID string
+	UserAID  string // user_a_id из таблицы dialogs
+	UserBID  string // user_b_id из таблицы dialogs
 }
 
 // ExpireMessages проставляет deleted_at для всех сообщений с истёкшим expires_at
 // и возвращает список затронутых сообщений для broadcast WS-события message_deleted.
 // Метод идемпотентен: повторный вызов с тем же now не затронет уже помеченные записи.
 // batchSize ограничивает число обрабатываемых сообщений за одну итерацию.
+// Возвращает оба участника диалога (UserAID, UserBID) для рассылки WS-событий.
 func (r *MessageRepository) ExpireMessages(ctx context.Context, now time.Time, batchSize int) ([]ExpiredMessage, error) {
-	// PostgreSQL не поддерживает LIMIT в UPDATE напрямую — используем CTE.
+	// CTE в два шага:
+	// 1. to_expire — блокируем строки в messages (без JOIN на dialogs, чтобы не лочить лишнее).
+	// 2. expired — UPDATE и RETURNING.
+	// Финальный SELECT джойнит dialogs, чтобы получить обоих участников диалога.
 	const query = `
 WITH to_expire AS (
-    SELECT id FROM messages
+    SELECT id, dialog_id
+    FROM messages
     WHERE expires_at <= $1 AND deleted_at IS NULL
     LIMIT $2
     FOR UPDATE SKIP LOCKED
+),
+expired AS (
+    UPDATE messages
+    SET deleted_at = $1
+    FROM to_expire
+    WHERE messages.id = to_expire.id
+    RETURNING messages.id, messages.dialog_id, messages.sender_id
 )
-UPDATE messages
-SET deleted_at = $1
-FROM to_expire
-WHERE messages.id = to_expire.id
-RETURNING messages.id, messages.dialog_id, messages.sender_id`
+SELECT e.id, e.dialog_id, e.sender_id, d.user_a_id, d.user_b_id
+FROM expired e
+JOIN dialogs d ON d.id = e.dialog_id`
 
 	rows, err := r.poolDB.Query(ctx, query, now, batchSize)
 	if err != nil {
@@ -175,7 +187,7 @@ RETURNING messages.id, messages.dialog_id, messages.sender_id`
 	var expired []ExpiredMessage
 	for rows.Next() {
 		var m ExpiredMessage
-		if err = rows.Scan(&m.ID, &m.DialogID, &m.SenderID); err != nil {
+		if err = rows.Scan(&m.ID, &m.DialogID, &m.SenderID, &m.UserAID, &m.UserBID); err != nil {
 			return nil, fmt.Errorf("scan expired message row: %w", err)
 		}
 		expired = append(expired, m)

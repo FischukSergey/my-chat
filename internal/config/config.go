@@ -10,6 +10,7 @@ type Config struct {
 	JWT                JWTConfig                `yaml:"jwt"`
 	NotificationWorker NotificationWorkerConfig `yaml:"notification_worker"`
 	Chat               ChatConfig               `yaml:"chat"`
+	Expirer            ExpirerConfig            `yaml:"expirer"`
 }
 
 // GlobalConfig хранит глобальные параметры окружения.
@@ -77,4 +78,13 @@ type NotificationWorkerConfig struct {
 type ChatConfig struct {
 	// MessageTTLSeconds — время жизни сообщения в секундах; 0 = TTL не используется.
 	MessageTTLSeconds int `yaml:"message_ttl_seconds" validate:"omitempty,min=0"`
+}
+
+// ExpirerConfig хранит параметры сервиса message-expirer.
+// Нулевые значения означают использование дефолтов в App.New.
+type ExpirerConfig struct {
+	// IntervalSeconds — интервал между запусками тикера в секундах; 0 = дефолт (10 сек).
+	IntervalSeconds int `yaml:"interval_seconds" validate:"omitempty,min=1"`
+	// BatchSize — максимальное число сообщений, обрабатываемых за одну итерацию; 0 = дефолт (100).
+	BatchSize int `yaml:"batch_size" validate:"omitempty,min=1"`
 }

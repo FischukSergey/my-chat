@@ -64,24 +64,28 @@
 
 ## 5) Message Expirer (`cmd/message-expirer/`)
 
-- [ ] Реализовать реальный тикер в `internal/app/messageexpirer/app.go`:
+- [x] Реализовать реальный тикер в `internal/app/messageexpirer/app.go`:
   - каждые N секунд (конфиг `expirer.interval`, по умолчанию 10 сек);
   - вызов `MessageRepository.ExpireMessages(ctx, time.Now())`;
   - broadcast `message_deleted` событий через Hub для онлайн-пользователей;
   - structured log `message_expired` с `count`, `duration_ms`.
-- [ ] Передать Hub в App message-expirer (или использовать общий Event Bus / публикацию в outbox).
-- [ ] Добавить конфиг `expirer.interval` в `configs/config.message-expirer.local.example.yaml`.
-- [ ] Добавить конфиг `chat.message_ttl` (duration) в `configs/config.main-service.local.example.yaml`.
-- [ ] Добавить unit-тест тикера (mock репозитория + mock Hub).
+- [x] Передать Hub в App message-expirer (или использовать общий Event Bus / публикацию в outbox).
+- [x] Добавить конфиг `expirer.interval` в `configs/config.message-expirer.local.example.yaml`.
+- [x] Добавить конфиг `chat.message_ttl` (duration) в `configs/config.main-service.local.example.yaml`.
+- [x] Добавить unit-тест тикера (mock репозитория + mock Hub).
+
+Примечание: выбран паттерн outbox. `message-expirer` пишет WS-события в таблицу `ws_event_outbox` (миграция 009). `ExpiredMessage` расширен полями `UserAID`/`UserBID` (JOIN dialogs в CTE). Добавлены: `WSEventOutboxRepository.EnqueueBatch`, `ExpirerConfig{IntervalSeconds, BatchSize}`, сервис `internal/services/expirer` с интерфейсами `messageRepository` и `eventPublisher`. 5 unit-тестов. `go build ./...` — OK. `task lint` — 0 issues.
 
 ---
 
 ## 6) WebSocket — событие `message_deleted`
 
-- [ ] Добавить тип события `message_deleted` в Hub.
-- [ ] При срабатывании expirer — отправлять `message_deleted` всем участникам диалога (оба пользователя), если они онлайн.
-- [ ] При reconnect клиента — не выдавать удалённые сообщения (уже обеспечено фильтром `deleted_at IS NULL` в `ListMessages`).
-- [ ] Добавить unit-тест: Hub корректно рассылает `message_deleted` подключённым клиентам.
+- [x] Добавить тип события `message_deleted` в Hub.
+- [x] При срабатывании expirer — отправлять `message_deleted` всем участникам диалога (оба пользователя), если они онлайн.
+- [x] При reconnect клиента — не выдавать удалённые сообщения (уже обеспечено фильтром `deleted_at IS NULL` в `ListMessages`).
+- [x] Добавить unit-тест: Hub корректно рассылает `message_deleted` подключённым клиентам.
+
+Примечание: добавлена константа `hub.EventMessageDeleted = "message_deleted"`. `WSEventOutboxRepository` расширен методами `ClaimBatch` и `MarkProcessedBatch`. Создан сервис `internal/services/wsdelivery` с `Delivery.RunOnce/Run` и интерфейсами `wsOutboxRepository`/`eventSender`. Поллер запускается в горутине в `mainservice.App.Run` с интервалом 5 сек, batch 50. 5 unit-тестов wsdelivery. `go build ./...` — OK. `task lint` — 0 issues.
 
 ---
 
