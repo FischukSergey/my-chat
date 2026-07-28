@@ -39,14 +39,15 @@ func setupAuthService(t *testing.T) (*authsvc.Service, *store.Store) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	repo := store.NewAuthSessionRepository(s)
+	sessionRepo := store.NewAuthSessionRepository(s)
+	userRepo := store.NewUserRepository(s)
 	cfg := authsvc.Config{
 		JWTSecret:       "integration-test-secret",
 		AccessTokenTTL:  15 * time.Minute,
 		RefreshTokenTTL: 7 * 24 * time.Hour,
 	}
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	svc := authsvc.NewService(repo, cfg, log)
+	svc := authsvc.NewService(sessionRepo, userRepo, cfg, log)
 
 	return svc, s
 }

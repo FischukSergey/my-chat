@@ -18,3 +18,8 @@ jwt:
   secret: local-dev-secret-change-in-prod
   access_token_ttl_seconds: 900
   refresh_token_ttl_seconds: 604800
+
+cors:
+  # Разрешённые origins. Пустой список = wildcard (только для local/dev).
+  # В stage/prod укажите явный список: ["https://app.example.com"]
+  allowed_origins: []

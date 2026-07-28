@@ -91,21 +91,25 @@
 
 ## 7) Auth service — tech debt Sprint 3
 
-- [ ] Добавить `UserRepository.FindByID` в store-слой (см. пункт 3).
-- [ ] Обновить `auth.Service.Login` — проверять `user.Status == "active"`, возвращать `ErrUserInactive` если нет.
-- [ ] Добавить `ErrUserInactive` и маппинг `403 user_inactive` в `handlers/auth`.
-- [ ] Добавить unit-тест: login заблокированного пользователя → ошибка.
+- [x] Добавить `UserRepository.FindByID` в store-слой (см. пункт 3).
+- [x] Обновить `auth.Service.Login` — проверять `user.Status == "active"`, возвращать `ErrUserInactive` если нет.
+- [x] Добавить `ErrUserInactive` и маппинг `403 user_inactive` в `handlers/auth`.
+- [x] Добавить unit-тест: login заблокированного пользователя → ошибка.
+
+Примечание: добавлен интерфейс `userRepository` в `auth.Service`. `NewService` принимает `userRepository` вторым аргументом. `Login` вызывает `FindByID` и проверяет `Status == "active"`, возвращая `ErrUserInactive` при блокировке. Хендлер маппит `ErrUserInactive → 403 user_inactive`. 4 новых теста: `TestLogin_InactiveUser_ReturnsErrUserInactive`, `TestLogin_UserNotFound_ReturnsError`, `TestLogin_InactiveUser_Returns403WithUserInactiveCode`. Обновлены интеграционные тесты. `task lint` — 0 issues.
 
 ---
 
 ## 8) Безопасность — tech debt Sprint 3
 
-- [ ] Добавить rate-limiting middleware на `POST /api/v1/auth/login`:
+- [x] Добавить rate-limiting middleware на `POST /api/v1/auth/login`:
   - по IP: не более 10 попыток в 60 сек;
   - HTTP 429 с `Retry-After` заголовком;
   - использовать `golang.org/x/time/rate` (in-memory) или middleware из chi-contrib.
-- [ ] Заменить CORS wildcard `*` на explicit allowlist в конфиге (`cors.allowed_origins: [...]`).
-- [ ] Проверить `task lint` после изменений.
+- [x] Заменить CORS wildcard `*` на explicit allowlist в конфиге (`cors.allowed_origins: [...]`).
+- [x] Проверить `task lint` после изменений.
+
+Примечание: реализован token bucket на stdlib (без внешних зависимостей — `golang.org/x/time` поднимает требование до `go 1.25`, несовместимое с текущим линтером). `ipRateLimiter` хранит per-IP `tokenBucket` в `sync.Map`, очищает устаревшие записи каждые 5 мин. Middleware `LoginRateLimitMiddleware` подключён только к `POST /api/v1/auth/login` через chi `router.With(...)`. `CORSConfig` добавлен в `Config`, `corsMiddleware` теперь принимает `[]string` — если список пуст, разрешает все origins (wildcard); иначе сверяет `Origin` с allowlist + добавляет `Vary: Origin`. Конфиги обновлены. `task lint` — 0 issues.
 
 ---
 

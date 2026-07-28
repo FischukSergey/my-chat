@@ -11,6 +11,7 @@ type Config struct {
 	NotificationWorker NotificationWorkerConfig `yaml:"notification_worker"`
 	Chat               ChatConfig               `yaml:"chat"`
 	Expirer            ExpirerConfig            `yaml:"expirer"`
+	CORS               CORSConfig               `yaml:"cors"`
 }
 
 // GlobalConfig хранит глобальные параметры окружения.
@@ -78,6 +79,13 @@ type NotificationWorkerConfig struct {
 type ChatConfig struct {
 	// MessageTTLSeconds — время жизни сообщения в секундах; 0 = TTL не используется.
 	MessageTTLSeconds int `yaml:"message_ttl_seconds" validate:"omitempty,min=0"`
+}
+
+// CORSConfig хранит параметры CORS-политики.
+type CORSConfig struct {
+	// AllowedOrigins — список разрешённых источников.
+	// Если список пуст или содержит единственный элемент "*", разрешаются все origins (только для local/dev).
+	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 // ExpirerConfig хранит параметры сервиса message-expirer.

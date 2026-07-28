@@ -163,6 +163,29 @@ func TestLogin_ServiceError_Returns500(t *testing.T) {
 	}
 }
 
+func TestLogin_InactiveUser_Returns403WithUserInactiveCode(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthSvc{
+		loginFn: func(_ context.Context, _ string, _ *string) (authsvc.TokenPair, error) {
+			return authsvc.TokenPair{}, authsvc.ErrUserInactive
+		},
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+		jsonBody(map[string]string{"user_id": "blocked-user"}))
+	w := httptest.NewRecorder()
+
+	authhandler.New(svc).Login(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status: want 403, got %d", w.Code)
+	}
+	if code := decodeErrorCode(t, w.Body); code != "user_inactive" {
+		t.Errorf("error code: want user_inactive, got %q", code)
+	}
+}
+
 // --- Refresh ---
 
 func TestRefresh_Success(t *testing.T) {
