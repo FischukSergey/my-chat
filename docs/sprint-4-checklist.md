@@ -115,22 +115,26 @@
 
 ## 9) Outbox housekeeping
 
-- [ ] Добавить метод `NotificationOutboxRepository.DeleteSent(ctx, olderThan time.Duration) (int64, error)`.
-- [ ] В `notification-worker` — запускать очистку outbox раз в сутки (или при старте + тикер 24 ч).
-- [ ] Добавить конфиг `worker.outbox_retention` (duration, по умолчанию 7d).
-- [ ] Добавить integration-тест очистки.
+- [x] Добавить метод `NotificationOutboxRepository.DeleteSent(ctx, olderThan time.Duration) (int64, error)`.
+- [x] В `notification-worker` — запускать очистку outbox раз в сутки (или при старте + тикер 24 ч).
+- [x] Добавить конфиг `worker.outbox_retention` (duration, по умолчанию 7d).
+- [x] Добавить integration-тест очистки.
+
+Примечание: `DeleteSent` удаляет строки `WHERE status = 'sent' AND updated_at < NOW() - olderThan`. `NotificationWorkerConfig.OutboxRetentionSeconds` (default 604800 = 7 суток) добавлен в `config.go`. `App.runHousekeepingLoop` запускается в горутине в `Run`: сразу при старте, затем каждые 24 ч через `housekeepingInterval` тикер. Добавлен `outboxRepo *store.NotificationOutboxRepository` в `App`. Integration-тест `TestIntegration_NotificationOutbox_DeleteSent` проверяет удаление old 'sent' записи, сохранение recent 'sent' и 'pending'. `task lint` — 0 issues.
 
 ---
 
 ## 10) Observability
 
-- [ ] Добавить зависимость `github.com/prometheus/client_golang`.
-- [ ] Добавить Prometheus middleware в `main-service` (метрики `http_requests_total`, `http_request_duration_seconds`).
-- [ ] Добавить метрику `ws_connections_active` (gauge в Hub).
-- [ ] Добавить метрику `message_send_total` (counter в chat service).
-- [ ] Добавить метрику `message_expired_total` (counter в message-expirer).
-- [ ] Добавить endpoint `GET /metrics` (только для internal трафика / отдельный порт).
-- [ ] Обновить docker-compose: добавить `prometheus` сервис + scrape config.
+- [x] Добавить зависимость `github.com/prometheus/client_golang`.
+- [x] Добавить Prometheus middleware в `main-service` (метрики `http_requests_total`, `http_request_duration_seconds`).
+- [x] Добавить метрику `ws_connections_active` (gauge в Hub).
+- [x] Добавить метрику `message_send_total` (counter в chat service).
+- [x] Добавить метрику `message_expired_total` (counter в message-expirer).
+- [x] Добавить endpoint `GET /metrics` (только для internal трафика / отдельный порт).
+- [x] Обновить docker-compose: добавить `prometheus` сервис + scrape config.
+
+Примечание: создан пакет `internal/metrics` — регистрация всех метрик через `init()` + функция `Serve(ctx, addr)` для запуска HTTP сервера метрик. Prometheus middleware (`internal/middleware/metrics.go`) использует `chi.RouteContext` для low-cardinality path лейбла. `Hub.SetConnGauge(g)`, `Service.SetMessageCounter(c)`, `Expirer.SetExpiredCounter(c)` — nil-safe setter-ы для передачи метрик. `main-service` запускает metrics сервер на `:9100`, `message-expirer` — на `:9101`. Добавлен `prometheus.yml` scrape config. Docker-compose обновлён: порты 9100/9101 пробрасываются, добавлен сервис `prometheus:v3.4.2` на порту 9090. `golangci-lint` обновлён до v2.12.2 (поддержка go 1.25+), deprecated `gomodguard` заменён на `gomodguard_v2`. `go build ./...` — OK. `task lint` — 0 issues. `task test` — все unit-тесты PASS.
 
 ---
 

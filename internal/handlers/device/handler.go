@@ -19,6 +19,11 @@ var allowedPlatforms = map[string]struct{}{
 	"web":     {},
 }
 
+const (
+	fieldField     = "field"
+	fieldPushToken = "push_token"
+)
+
 type deviceService interface {
 	Register(ctx context.Context, d store.Device) (store.Device, error)
 	Unregister(ctx context.Context, userID, pushToken string) error
@@ -70,18 +75,19 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, ok := allowedPlatforms[req.Platform]; !ok {
-		respondError(w, http.StatusBadRequest, "invalid_argument", "platform is invalid", map[string]string{"field": "platform"})
+		respondError(w, http.StatusBadRequest, "invalid_argument", "platform is invalid", map[string]string{fieldField: "platform"})
 		return
 	}
 
 	token := strings.TrimSpace(req.PushToken)
 	if token == "" {
-		respondError(w, http.StatusBadRequest, "invalid_argument", "push_token is required", map[string]string{"field": "push_token"})
+		respondError(w, http.StatusBadRequest, "invalid_argument", "push_token is required",
+			map[string]string{fieldField: fieldPushToken})
 		return
 	}
 	if len(token) > 1024 {
 		respondError(w, http.StatusBadRequest, "invalid_argument",
-			"push_token exceeds 1024 characters", map[string]string{"field": "push_token"})
+			"push_token exceeds 1024 characters", map[string]string{fieldField: fieldPushToken})
 		return
 	}
 
@@ -123,18 +129,19 @@ func (h *Handler) Unregister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, ok := allowedPlatforms[req.Platform]; !ok {
-		respondError(w, http.StatusBadRequest, "invalid_argument", "platform is invalid", map[string]string{"field": "platform"})
+		respondError(w, http.StatusBadRequest, "invalid_argument", "platform is invalid", map[string]string{fieldField: "platform"})
 		return
 	}
 
 	token := strings.TrimSpace(req.PushToken)
 	if token == "" {
-		respondError(w, http.StatusBadRequest, "invalid_argument", "push_token is required", map[string]string{"field": "push_token"})
+		respondError(w, http.StatusBadRequest, "invalid_argument", "push_token is required",
+			map[string]string{fieldField: fieldPushToken})
 		return
 	}
 	if len(token) > 1024 {
 		respondError(w, http.StatusBadRequest, "invalid_argument",
-			"push_token exceeds 1024 characters", map[string]string{"field": "push_token"})
+			"push_token exceeds 1024 characters", map[string]string{fieldField: fieldPushToken})
 		return
 	}
 

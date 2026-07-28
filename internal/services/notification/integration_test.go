@@ -63,7 +63,7 @@ func makeOutboxTask(t *testing.T, ctx context.Context, s *store.Store, userID st
 
 	msgID := uuid.NewString()
 	rawPayload, err := json.Marshal(map[string]any{
-		"event_type":   "message_new",
+		"event_type":   eventTypeMessageNew,
 		"user_id":      userID,
 		"message_id":   msgID,
 		"dialog_id":    uuid.NewString(),
@@ -78,7 +78,7 @@ func makeOutboxTask(t *testing.T, ctx context.Context, s *store.Store, userID st
 
 	task := store.NotificationOutbox{
 		ID:        uuid.NewString(),
-		EventType: "message_new",
+		EventType: eventTypeMessageNew,
 		UserID:    userID,
 		Payload:   rawPayload,
 		DedupKey:  "message_new:" + msgID + ":" + userID,
@@ -109,7 +109,7 @@ func TestIntegration_WorkerProcessesOutbox_MarksSent(t *testing.T) {
 	_, err := deviceRepo.Upsert(ctx, store.Device{
 		ID:        uuid.NewString(),
 		UserID:    userID,
-		Platform:  "ios",
+		Platform:  platformIOSTest,
 		PushToken: "integration-test-token",
 	})
 	if err != nil {
@@ -150,6 +150,93 @@ func TestIntegration_WorkerProcessesOutbox_MarksSent(t *testing.T) {
 	}
 	if status != string(store.OutboxStatusSent) {
 		t.Errorf("expected task status=sent, got %q", status)
+	}
+}
+
+// TestIntegration_NotificationOutbox_DeleteSent проверяет, что DeleteSent удаляет
+// только задачи со статусом 'sent', чей updated_at старше указанного порога.
+func TestIntegration_NotificationOutbox_DeleteSent(t *testing.T) {
+	s := setupIntegrationDB(t)
+	ctx := context.Background()
+
+	userID := insertUserForWorker(t, ctx, s)
+	outboxRepo := store.NewNotificationOutboxRepository(s)
+
+	// Вставляем 'sent' задачу с updated_at = 8 дней назад (должна удалиться).
+	oldID := uuid.NewString()
+	_, err := s.DB().Exec(ctx, `
+		INSERT INTO notification_outbox
+		            (id, event_type, user_id, payload, dedup_key, status,
+		             next_attempt_at, created_at, updated_at)
+		VALUES ($1, 'message_new', $2, '{}', $3, 'sent',
+		        NOW(), NOW() - INTERVAL '8 days', NOW() - INTERVAL '8 days')
+	`, oldID, userID, "dedup-old-"+oldID)
+	if err != nil {
+		t.Fatalf("insert old task: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = s.DB().Exec(ctx, "DELETE FROM notification_outbox WHERE id = $1", oldID)
+	})
+
+	// Вставляем 'sent' задачу с updated_at = 1 день назад (не должна удалиться).
+	recentID := uuid.NewString()
+	_, err = s.DB().Exec(ctx, `
+		INSERT INTO notification_outbox
+		            (id, event_type, user_id, payload, dedup_key, status,
+		             next_attempt_at, created_at, updated_at)
+		VALUES ($1, 'message_new', $2, '{}', $3, 'sent',
+		        NOW(), NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day')
+	`, recentID, userID, "dedup-recent-"+recentID)
+	if err != nil {
+		t.Fatalf("insert recent task: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = s.DB().Exec(ctx, "DELETE FROM notification_outbox WHERE id = $1", recentID)
+	})
+
+	// Вставляем 'pending' задачу с old updated_at (не должна удалиться — статус != 'sent').
+	pendingID := uuid.NewString()
+	_, err = s.DB().Exec(ctx, `
+		INSERT INTO notification_outbox
+		            (id, event_type, user_id, payload, dedup_key, status,
+		             next_attempt_at, created_at, updated_at)
+		VALUES ($1, 'message_new', $2, '{}', $3, 'pending',
+		        NOW(), NOW() - INTERVAL '8 days', NOW() - INTERVAL '8 days')
+	`, pendingID, userID, "dedup-pending-"+pendingID)
+	if err != nil {
+		t.Fatalf("insert pending task: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = s.DB().Exec(ctx, "DELETE FROM notification_outbox WHERE id = $1", pendingID)
+	})
+
+	// Запускаем очистку с порогом 7 суток.
+	n, err := outboxRepo.DeleteSent(ctx, 7*24*time.Hour)
+	if err != nil {
+		t.Fatalf("DeleteSent: %v", err)
+	}
+	if n < 1 {
+		t.Errorf("expected at least 1 deleted, got %d", n)
+	}
+
+	countRow := func(id string) int {
+		var c int
+		if scanErr := s.DB().QueryRow(ctx,
+			"SELECT COUNT(*) FROM notification_outbox WHERE id = $1", id,
+		).Scan(&c); scanErr != nil {
+			t.Fatalf("count row %s: %v", id, scanErr)
+		}
+		return c
+	}
+
+	if countRow(oldID) != 0 {
+		t.Errorf("old 'sent' task must be deleted, but still exists")
+	}
+	if countRow(recentID) != 1 {
+		t.Errorf("recent 'sent' task must still exist")
+	}
+	if countRow(pendingID) != 1 {
+		t.Errorf("'pending' task must not be deleted by DeleteSent")
 	}
 }
 

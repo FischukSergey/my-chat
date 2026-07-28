@@ -7,7 +7,7 @@ vars:
   GO_MODULE: my-chat
   GO_FILES:
     sh: find . -type f -name '*.go' -not -path "./vendor/*" -not -path "*.gen.go" | tr "\n" " "
-  GOLANGCI_LINT_VERSION: v2.1.6
+  GOLANGCI_LINT_VERSION: v2.12.2
   GOLANGCI_LINT_CACHE:
     sh: echo "$HOME/Library/Caches/golangci-lint"
   DOCKER_COMPOSE_CMD: "docker compose"
@@ -57,7 +57,6 @@ tasks:
           -v "$(pwd):/app" -w /app \
           -v "{{.GOLANGCI_LINT_CACHE}}:/root/.cache" \
           -v "${GOMODCACHE}:/root/go/pkg/mod:ro" \
-          -e GOEXPERIMENT=rangefunc \
           golangci/golangci-lint:{{.GOLANGCI_LINT_VERSION}} \
           golangci-lint {{.CLI_ARGS}}
 

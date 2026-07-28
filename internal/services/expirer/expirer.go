@@ -21,12 +21,19 @@ type eventPublisher interface {
 	EnqueueBatch(ctx context.Context, events []store.WSEventOutbox) error
 }
 
+// expiredCounter отслеживает число истёкших сообщений.
+// Реализуется prometheus.Counter; nil отключает метрику.
+type expiredCounter interface {
+	Add(n float64)
+}
+
 // Expirer обнаруживает истёкшие сообщения и публикует WS-события в outbox.
 type Expirer struct {
-	repo      messageRepository
-	publisher eventPublisher
-	log       *slog.Logger
-	batchSize int
+	repo           messageRepository
+	publisher      eventPublisher
+	log            *slog.Logger
+	batchSize      int
+	expiredCounter expiredCounter
 }
 
 // New создаёт Expirer.
@@ -38,6 +45,15 @@ func New(repo messageRepository, publisher eventPublisher, log *slog.Logger, bat
 		batchSize: batchSize,
 	}
 }
+
+// SetExpiredCounter устанавливает counter для отслеживания числа истёкших сообщений.
+// Должен вызываться до запуска сервиса.
+func (e *Expirer) SetExpiredCounter(c expiredCounter) {
+	e.expiredCounter = c
+}
+
+// messageDeletedEventType — тип WS-события удаления сообщения.
+const messageDeletedEventType = "message_deleted"
 
 // messageDeletedPayload — payload WS-события message_deleted.
 // Формат зафиксирован в docs/api-sprint-4.md.
@@ -71,6 +87,10 @@ func (e *Expirer) Tick(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("enqueue ws events: %w", err)
 	}
 
+	if e.expiredCounter != nil {
+		e.expiredCounter.Add(float64(len(expired)))
+	}
+
 	e.log.Info("message_expired",
 		slog.Int("count", len(expired)),
 		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
@@ -85,7 +105,7 @@ func buildEvents(expired []store.ExpiredMessage) ([]store.WSEventOutbox, error) 
 
 	for _, msg := range expired {
 		payload, err := json.Marshal(messageDeletedPayload{
-			Type:      "message_deleted",
+			Type:      messageDeletedEventType,
 			MessageID: msg.ID,
 			DialogID:  msg.DialogID,
 		})
@@ -94,8 +114,8 @@ func buildEvents(expired []store.ExpiredMessage) ([]store.WSEventOutbox, error) 
 		}
 
 		events = append(events,
-			store.WSEventOutbox{ID: uuid.NewString(), EventType: "message_deleted", UserID: msg.UserAID, Payload: payload},
-			store.WSEventOutbox{ID: uuid.NewString(), EventType: "message_deleted", UserID: msg.UserBID, Payload: payload},
+			store.WSEventOutbox{ID: uuid.NewString(), EventType: messageDeletedEventType, UserID: msg.UserAID, Payload: payload},
+			store.WSEventOutbox{ID: uuid.NewString(), EventType: messageDeletedEventType, UserID: msg.UserBID, Payload: payload},
 		)
 	}
 

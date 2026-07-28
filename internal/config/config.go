@@ -28,7 +28,8 @@ type LogConfig struct {
 
 // ServersConfig хранит настройки сетевых серверов.
 type ServersConfig struct {
-	Client ClientServerConfig `yaml:"client"`
+	Client  ClientServerConfig  `yaml:"client"`
+	Metrics MetricsServerConfig `yaml:"metrics"`
 }
 
 // ClientServerConfig хранит настройки HTTP API сервера.
@@ -39,6 +40,16 @@ type ClientServerConfig struct {
 // IsConfigured проверяет, задан ли адрес клиентского сервера.
 func (c ClientServerConfig) IsConfigured() bool {
 	return c.Addr != ""
+}
+
+// MetricsServerConfig хранит настройки HTTP сервера метрик.
+type MetricsServerConfig struct {
+	Addr string `yaml:"addr" validate:"omitempty,hostname_port"`
+}
+
+// IsConfigured проверяет, задан ли адрес сервера метрик.
+func (m MetricsServerConfig) IsConfigured() bool {
+	return m.Addr != ""
 }
 
 // DatabaseConfig хранит параметры подключения к PostgreSQL.
@@ -73,6 +84,8 @@ type NotificationWorkerConfig struct {
 	MaxAttempts         int    `yaml:"max_attempts" validate:"omitempty,min=1"`
 	BackoffBaseSeconds  int    `yaml:"backoff_base_seconds" validate:"omitempty,min=1"`
 	Provider            string `yaml:"provider" validate:"omitempty,oneof=dev-log noop"`
+	// OutboxRetentionSeconds — сколько секунд хранить отправленные записи в outbox; 0 = дефолт (7 суток).
+	OutboxRetentionSeconds int `yaml:"outbox_retention_seconds" validate:"omitempty,min=3600"`
 }
 
 // ChatConfig хранит параметры сервиса чата.

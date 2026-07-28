@@ -14,6 +14,12 @@ import (
 
 // --- mocks ---
 
+const (
+	testUser1ID  = "user-1"
+	testFamily1  = "family-1"
+	testSession1 = "sess-1"
+)
+
 type mockUserRepo struct {
 	findByIDFn func(ctx context.Context, userID string) (store.User, error)
 }
@@ -112,7 +118,7 @@ func TestLogin_ReturnsTokenPairAndCreatesSession(t *testing.T) {
 		},
 	}
 
-	pair, err := newService(repo).Login(context.Background(), "user-1", nil)
+	pair, err := newService(repo).Login(context.Background(), testUser1ID, nil)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -129,8 +135,8 @@ func TestLogin_ReturnsTokenPairAndCreatesSession(t *testing.T) {
 	if pair.ExpiresIn != int((15 * time.Minute).Seconds()) {
 		t.Errorf("ExpiresIn: want %d, got %d", int((15 * time.Minute).Seconds()), pair.ExpiresIn)
 	}
-	if created.UserID != "user-1" {
-		t.Errorf("created session UserID: want %q, got %q", "user-1", created.UserID)
+	if created.UserID != testUser1ID {
+		t.Errorf("created session UserID: want %q, got %q", testUser1ID, created.UserID)
 	}
 	if created.ID != pair.SessionID {
 		t.Errorf("created session ID must equal pair.SessionID")
@@ -147,7 +153,7 @@ func TestLogin_RepoError_ReturnsError(t *testing.T) {
 		},
 	}
 
-	_, err := newService(repo).Login(context.Background(), "user-1", nil)
+	_, err := newService(repo).Login(context.Background(), testUser1ID, nil)
 	if err == nil {
 		t.Fatal("expected error from repo, got nil")
 	}
@@ -197,7 +203,7 @@ func TestRefresh_ValidToken_RotatesSession(t *testing.T) {
 	}
 	svc := auth.NewService(repo, &mockUserRepo{}, testConfig(), testLogger())
 
-	pair, err := svc.Login(context.Background(), "user-1", nil)
+	pair, err := svc.Login(context.Background(), testUser1ID, nil)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -250,7 +256,7 @@ func TestRefresh_InvalidJWT_ReturnsErrRevoked(t *testing.T) {
 func TestRefresh_SessionNotFound_ReturnsErrRevoked(t *testing.T) {
 	// Выпускаем валидный токен, но репо не найдёт сессию.
 	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
-		context.Background(), "user-1", nil,
+		context.Background(), testUser1ID, nil,
 	)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -270,7 +276,7 @@ func TestRefresh_SessionNotFound_ReturnsErrRevoked(t *testing.T) {
 
 func TestRefresh_RevokedSession_ReturnsErrCompromised_AndRevokesFamily(t *testing.T) {
 	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
-		context.Background(), "user-1", nil,
+		context.Background(), testUser1ID, nil,
 	)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -279,8 +285,8 @@ func TestRefresh_RevokedSession_ReturnsErrCompromised_AndRevokesFamily(t *testin
 	revokedAt := time.Now().UTC()
 	revokedSession := store.AuthSession{
 		ID:        "sess-old",
-		UserID:    "user-1",
-		FamilyID:  "family-1",
+		UserID:    testUser1ID,
+		FamilyID:  testFamily1,
 		RevokedAt: &revokedAt,
 		ExpiresAt: time.Now().UTC().Add(time.Hour),
 	}
@@ -300,23 +306,23 @@ func TestRefresh_RevokedSession_ReturnsErrCompromised_AndRevokesFamily(t *testin
 	if !errors.Is(err, auth.ErrSessionCompromised) {
 		t.Errorf("expected ErrSessionCompromised, got %v", err)
 	}
-	if revokedFamilyID != "family-1" {
-		t.Errorf("expected RevokeFamily called with %q, got %q", "family-1", revokedFamilyID)
+	if revokedFamilyID != testFamily1 {
+		t.Errorf("expected RevokeFamily called with %q, got %q", testFamily1, revokedFamilyID)
 	}
 }
 
 func TestRefresh_ExpiredSession_ReturnsErrExpired(t *testing.T) {
 	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
-		context.Background(), "user-1", nil,
+		context.Background(), testUser1ID, nil,
 	)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
 
 	expiredSession := store.AuthSession{
-		ID:        "sess-1",
-		UserID:    "user-1",
-		FamilyID:  "family-1",
+		ID:        testSession1,
+		UserID:    testUser1ID,
+		FamilyID:  testFamily1,
 		ExpiresAt: time.Now().UTC().Add(-time.Minute), // в прошлом
 	}
 
@@ -336,14 +342,14 @@ func TestRefresh_ExpiredSession_ReturnsErrExpired(t *testing.T) {
 
 func TestLogout_RevokesSession(t *testing.T) {
 	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
-		context.Background(), "user-1", nil,
+		context.Background(), testUser1ID, nil,
 	)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
 
 	activeSession := store.AuthSession{
-		ID: "sess-1", UserID: "user-1", FamilyID: "family-1",
+		ID: testSession1, UserID: testUser1ID, FamilyID: testFamily1,
 		ExpiresAt: time.Now().UTC().Add(time.Hour),
 	}
 	var revokedID string
@@ -361,8 +367,8 @@ func TestLogout_RevokesSession(t *testing.T) {
 	if err = svcLogout.Logout(context.Background(), pair.RefreshToken); err != nil {
 		t.Fatalf("Logout: %v", err)
 	}
-	if revokedID != "sess-1" {
-		t.Errorf("expected RevokeSession with %q, got %q", "sess-1", revokedID)
+	if revokedID != testSession1 {
+		t.Errorf("expected RevokeSession with %q, got %q", testSession1, revokedID)
 	}
 }
 
@@ -375,7 +381,7 @@ func TestLogout_InvalidToken_ReturnsErrRevoked(t *testing.T) {
 
 func TestLogout_SessionNotFound_ReturnsNil(t *testing.T) {
 	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
-		context.Background(), "user-1", nil,
+		context.Background(), testUser1ID, nil,
 	)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -395,7 +401,7 @@ func TestLogout_SessionNotFound_ReturnsNil(t *testing.T) {
 
 func TestLogout_AlreadyRevoked_ReturnsNil(t *testing.T) {
 	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
-		context.Background(), "user-1", nil,
+		context.Background(), testUser1ID, nil,
 	)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -405,7 +411,7 @@ func TestLogout_AlreadyRevoked_ReturnsNil(t *testing.T) {
 	repo := &mockSessionRepo{
 		findByTokenHashFn: func(_ context.Context, _ string) (store.AuthSession, error) {
 			return store.AuthSession{
-				ID: "sess-1", RevokedAt: &revokedAt,
+				ID: testSession1, RevokedAt: &revokedAt,
 				ExpiresAt: time.Now().UTC().Add(time.Hour),
 			}, nil
 		},

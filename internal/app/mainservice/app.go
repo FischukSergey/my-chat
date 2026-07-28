@@ -19,6 +19,7 @@ import (
 	wshandler "my-chat/internal/handlers/ws"
 	"my-chat/internal/hub"
 	"my-chat/internal/logger"
+	"my-chat/internal/metrics"
 	mw "my-chat/internal/middleware"
 	chatservice "my-chat/internal/services/chat"
 	deviceservice "my-chat/internal/services/device"
@@ -92,8 +93,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	log.Info("инициализированы репозитории хранилища", slog.Int("repositories_count", 6))
 
 	connHub := hub.New(log)
+	connHub.SetConnGauge(metrics.WSConnectionsActive)
 	messageTTL := time.Duration(cfg.Chat.MessageTTLSeconds) * time.Second
 	chatSvc := chatservice.NewService(dialogRepo, messageRepo, receiptRepo, connHub, outboxRepo, messageTTL)
+	chatSvc.SetMessageCounter(metrics.MessageSendTotal)
 	deviceSvc := deviceservice.NewService(deviceRepo)
 	chatHandler := chathandler.New(chatSvc)
 	deviceHandler := devicehandler.New(deviceSvc)
@@ -102,6 +105,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	router := chi.NewRouter()
 	router.Use(corsMiddleware)
+	router.Use(mw.PrometheusMiddleware)
 	router.Get("/health", health.Handle)
 	router.Get("/debug", debughandler.Handle)
 	router.Get("/ws/connect", wsHandler.Connect)
@@ -143,6 +147,15 @@ func (a *App) Run(ctx context.Context) error {
 
 	// Горутина доставки WS-событий из outbox подключённым клиентам.
 	go a.wsDelivery.Run(ctx, wsDeliveryPollInterval)
+
+	// Сервер метрик на отдельном порту (только internal трафик).
+	if a.cfg.Servers.Metrics.IsConfigured() {
+		go func() {
+			if err := metrics.Serve(ctx, a.cfg.Servers.Metrics.Addr, a.logger); err != nil {
+				a.logger.Error("metrics сервер завершился с ошибкой", slog.String("error", err.Error()))
+			}
+		}()
+	}
 
 	errCh := make(chan error, 1)
 

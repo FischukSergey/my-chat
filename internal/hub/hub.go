@@ -53,11 +53,19 @@ func (c *Conn) write(ctx context.Context, event Event) error {
 	return c.raw.Write(ctx, websocket.MessageText, data)
 }
 
+// connGauge отслеживает число активных WS-соединений.
+// Реализуется prometheus.Gauge; nil отключает метрику.
+type connGauge interface {
+	Inc()
+	Dec()
+}
+
 // Hub хранит активные соединения по user_id.
 type Hub struct {
-	mu     sync.RWMutex
-	conns  map[string][]*Conn
-	logger *slog.Logger
+	mu        sync.RWMutex
+	conns     map[string][]*Conn
+	logger    *slog.Logger
+	connGauge connGauge
 }
 
 // New создаёт Hub.
@@ -66,6 +74,12 @@ func New(logger *slog.Logger) *Hub {
 		conns:  make(map[string][]*Conn),
 		logger: logger,
 	}
+}
+
+// SetConnGauge устанавливает gauge для отслеживания активных соединений.
+// Должен вызываться до запуска (до первого Register/Unregister).
+func (h *Hub) SetConnGauge(g connGauge) {
+	h.connGauge = g
 }
 
 // NewConn оборачивает websocket.Conn.
@@ -79,6 +93,9 @@ func (h *Hub) Register(userID string, c *Conn) {
 	defer h.mu.Unlock()
 
 	h.conns[userID] = append(h.conns[userID], c)
+	if h.connGauge != nil {
+		h.connGauge.Inc()
+	}
 }
 
 // Unregister удаляет соединение из реестра.
@@ -98,6 +115,10 @@ func (h *Hub) Unregister(userID string, c *Conn) {
 		delete(h.conns, userID)
 	} else {
 		h.conns[userID] = filtered
+	}
+
+	if h.connGauge != nil {
+		h.connGauge.Dec()
 	}
 }
 

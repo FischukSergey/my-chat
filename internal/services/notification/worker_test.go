@@ -19,6 +19,12 @@ import (
 
 // --- fakes ---
 
+const (
+	eventTypeMessageNew = "message_new"
+	platformIOSTest     = "ios"
+	pushTokenTest       = "tok"
+)
+
 type fakeOutbox struct {
 	mu        sync.Mutex
 	tasks     []store.NotificationOutbox
@@ -70,7 +76,7 @@ func makeTask(t *testing.T, userID string, attempt int) store.NotificationOutbox
 	t.Helper()
 	msgID := uuid.NewString()
 	raw, err := json.Marshal(map[string]any{
-		"event_type":   "message_new",
+		"event_type":   eventTypeMessageNew,
 		"user_id":      userID,
 		"message_id":   msgID,
 		"dialog_id":    uuid.NewString(),
@@ -84,7 +90,7 @@ func makeTask(t *testing.T, userID string, attempt int) store.NotificationOutbox
 	}
 	return store.NotificationOutbox{
 		ID:        uuid.NewString(),
-		EventType: "message_new",
+		EventType: eventTypeMessageNew,
 		UserID:    userID,
 		Payload:   raw,
 		Attempt:   attempt,
@@ -109,7 +115,7 @@ func TestWorker_Success_MarksSent(t *testing.T) {
 
 	outbox := &fakeOutbox{tasks: []store.NotificationOutbox{task}}
 	devices := &fakeDevices{devices: map[string][]store.Device{
-		userID: {{ID: uuid.NewString(), UserID: userID, Platform: "ios", PushToken: "tok", Enabled: true}},
+		userID: {{ID: uuid.NewString(), UserID: userID, Platform: platformIOSTest, PushToken: pushTokenTest, Enabled: true}},
 	}}
 	provider := push.NewNoopProvider()
 
@@ -135,7 +141,7 @@ func TestWorker_ProviderError_BelowMaxAttempts_MarksFailedWithBackoff(t *testing
 
 	outbox := &fakeOutbox{tasks: []store.NotificationOutbox{task}}
 	devices := &fakeDevices{devices: map[string][]store.Device{
-		userID: {{ID: uuid.NewString(), UserID: userID, Platform: "android", PushToken: "tok", Enabled: true}},
+		userID: {{ID: uuid.NewString(), UserID: userID, Platform: "android", PushToken: pushTokenTest, Enabled: true}},
 	}}
 	provider := push.NewNoopProvider()
 	provider.SendFunc = func(_ context.Context, _ push.Message) error {
@@ -167,7 +173,7 @@ func TestWorker_ProviderError_AtMaxAttempts_MarksFailedWithExhaustedDelay(t *tes
 
 	outbox := &fakeOutbox{tasks: []store.NotificationOutbox{task}}
 	devices := &fakeDevices{devices: map[string][]store.Device{
-		userID: {{ID: uuid.NewString(), UserID: userID, Platform: "ios", PushToken: "tok", Enabled: true}},
+		userID: {{ID: uuid.NewString(), UserID: userID, Platform: platformIOSTest, PushToken: pushTokenTest, Enabled: true}},
 	}}
 	provider := push.NewNoopProvider()
 	provider.SendFunc = func(_ context.Context, _ push.Message) error {

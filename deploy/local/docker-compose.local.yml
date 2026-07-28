@@ -47,6 +47,7 @@ services:
     command: ["-config", "configs/config.main-service.docker.local.yaml"]
     ports:
       - "8080:8080"
+      - "9100:9100"
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,6 +72,21 @@ services:
     container_name: my-chat-message-expirer-local
     <<: *common-labels
     command: ["-config", "configs/config.message-expirer.docker.local.yaml"]
+    ports:
+      - "9101:9101"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.4.2
+    container_name: my-chat-prometheus-local
+    <<: *common-labels
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - main-service
+      - message-expirer
     restart: unless-stopped
 
 volumes:

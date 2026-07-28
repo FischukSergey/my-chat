@@ -19,6 +19,14 @@ import (
 
 // --- mock ---
 
+const (
+	platformIOS       = "ios"
+	platformAndroid   = "android"
+	testPushToken     = "tok"
+	fieldPlatform     = "platform"
+	fieldPushTokenKey = "push_token"
+)
+
 type mockDeviceSvc struct {
 	registerFn   func(ctx context.Context, d store.Device) (store.Device, error)
 	unregisterFn func(ctx context.Context, userID, pushToken string) error
@@ -80,8 +88,8 @@ func TestRegister_Success(t *testing.T) {
 		},
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/register",
-		jsonBody(t, map[string]string{"platform": "ios", "push_token": "tok-123"}))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/register",
+		jsonBody(t, map[string]string{fieldPlatform: platformIOS, fieldPushTokenKey: "tok-123"}))
 	req = withUserID(req, "user-a")
 	rec := httptest.NewRecorder()
 
@@ -111,8 +119,8 @@ func TestRegister_Success(t *testing.T) {
 func TestRegister_Unauthorized_MissingUserID(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/register",
-		jsonBody(t, map[string]string{"platform": "ios", "push_token": "tok"}))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/register",
+		jsonBody(t, map[string]string{fieldPlatform: platformIOS, fieldPushTokenKey: testPushToken}))
 	// userID NOT injected into context
 	rec := httptest.NewRecorder()
 
@@ -126,7 +134,7 @@ func TestRegister_Unauthorized_MissingUserID(t *testing.T) {
 func TestRegister_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/register",
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/register",
 		strings.NewReader("{bad json"))
 	req = withUserID(req, "user-a")
 	rec := httptest.NewRecorder()
@@ -141,8 +149,8 @@ func TestRegister_InvalidJSON(t *testing.T) {
 func TestRegister_InvalidPlatform(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/register",
-		jsonBody(t, map[string]string{"platform": "fax", "push_token": "tok"}))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/register",
+		jsonBody(t, map[string]string{fieldPlatform: "fax", fieldPushTokenKey: testPushToken}))
 	req = withUserID(req, "user-a")
 	rec := httptest.NewRecorder()
 
@@ -159,8 +167,8 @@ func TestRegister_InvalidPlatform(t *testing.T) {
 func TestRegister_EmptyToken(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/register",
-		jsonBody(t, map[string]string{"platform": "ios", "push_token": "   "}))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/register",
+		jsonBody(t, map[string]string{fieldPlatform: platformIOS, fieldPushTokenKey: "   "}))
 	req = withUserID(req, "user-a")
 	rec := httptest.NewRecorder()
 
@@ -174,8 +182,8 @@ func TestRegister_EmptyToken(t *testing.T) {
 func TestRegister_TokenTooLong(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/register",
-		jsonBody(t, map[string]string{"platform": "android", "push_token": strings.Repeat("x", 1025)}))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/register",
+		jsonBody(t, map[string]string{fieldPlatform: platformAndroid, fieldPushTokenKey: strings.Repeat("x", 1025)}))
 	req = withUserID(req, "user-a")
 	rec := httptest.NewRecorder()
 
@@ -194,8 +202,8 @@ func TestRegister_ServiceError(t *testing.T) {
 			return store.Device{}, errors.New("db unavailable")
 		},
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/register",
-		jsonBody(t, map[string]string{"platform": "web", "push_token": "tok"}))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/register",
+		jsonBody(t, map[string]string{fieldPlatform: "web", fieldPushTokenKey: testPushToken}))
 	req = withUserID(req, "user-a")
 	rec := httptest.NewRecorder()
 
@@ -217,8 +225,8 @@ func TestUnregister_Success(t *testing.T) {
 	svc := &mockDeviceSvc{
 		unregisterFn: func(_ context.Context, _, _ string) error { return nil },
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/unregister",
-		jsonBody(t, map[string]string{"platform": "ios", "push_token": "tok-123"}))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/unregister",
+		jsonBody(t, map[string]string{fieldPlatform: platformIOS, fieldPushTokenKey: "tok-123"}))
 	req = withUserID(req, "user-b")
 	rec := httptest.NewRecorder()
 
@@ -232,8 +240,8 @@ func TestUnregister_Success(t *testing.T) {
 func TestUnregister_Unauthorized_MissingUserID(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/unregister",
-		jsonBody(t, map[string]string{"platform": "ios", "push_token": "tok"}))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/unregister",
+		jsonBody(t, map[string]string{fieldPlatform: platformIOS, fieldPushTokenKey: testPushToken}))
 	rec := httptest.NewRecorder()
 
 	newHandler(&mockDeviceSvc{}).Unregister(rec, req)
@@ -246,7 +254,7 @@ func TestUnregister_Unauthorized_MissingUserID(t *testing.T) {
 func TestUnregister_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/unregister",
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/unregister",
 		strings.NewReader("}}"))
 	req = withUserID(req, "user-a")
 	rec := httptest.NewRecorder()
@@ -261,8 +269,8 @@ func TestUnregister_InvalidJSON(t *testing.T) {
 func TestUnregister_InvalidPlatform(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/unregister",
-		jsonBody(t, map[string]string{"platform": "blackberry", "push_token": "tok"}))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/unregister",
+		jsonBody(t, map[string]string{fieldPlatform: "blackberry", fieldPushTokenKey: testPushToken}))
 	req = withUserID(req, "user-b")
 	rec := httptest.NewRecorder()
 
@@ -276,8 +284,8 @@ func TestUnregister_InvalidPlatform(t *testing.T) {
 func TestUnregister_EmptyToken(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/unregister",
-		jsonBody(t, map[string]string{"platform": "ios", "push_token": ""}))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/unregister",
+		jsonBody(t, map[string]string{fieldPlatform: platformIOS, fieldPushTokenKey: ""}))
 	req = withUserID(req, "user-b")
 	rec := httptest.NewRecorder()
 
@@ -296,8 +304,8 @@ func TestUnregister_ServiceError(t *testing.T) {
 			return errors.New("db error")
 		},
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/unregister",
-		jsonBody(t, map[string]string{"platform": "android", "push_token": "tok"}))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/unregister",
+		jsonBody(t, map[string]string{fieldPlatform: platformAndroid, fieldPushTokenKey: testPushToken}))
 	req = withUserID(req, "user-b")
 	rec := httptest.NewRecorder()
 
@@ -324,8 +332,8 @@ func TestRegister_AllPlatformsAccepted(t *testing.T) {
 					return d, nil
 				},
 			}
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/register",
-				jsonBody(t, map[string]string{"platform": platform, "push_token": "tok"}))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/register",
+				jsonBody(t, map[string]string{fieldPlatform: platform, fieldPushTokenKey: testPushToken}))
 			req = withUserID(req, "user-a")
 			rec := httptest.NewRecorder()
 

@@ -25,7 +25,17 @@ var (
 
 const (
 	previewMaxRunes = 120
+
+	keyMessageID = "message_id"
+	keyDialogID  = "dialog_id"
+	keyUserID    = "user_id"
 )
+
+// messageCounter отслеживает число отправленных сообщений.
+// Реализуется prometheus.Counter; nil отключает метрику.
+type messageCounter interface {
+	Inc()
+}
 
 // Service оркестрирует операции над сообщениями и receipt-статусами.
 type Service struct {
@@ -35,6 +45,7 @@ type Service struct {
 	notifier notifier
 	outbox   outboxPublisher
 	ttl      time.Duration // 0 = сообщения не истекают
+	msgCount messageCounter
 }
 
 type dialogRepository interface {
@@ -82,6 +93,12 @@ func NewService(
 	}
 }
 
+// SetMessageCounter устанавливает counter для отслеживания числа отправленных сообщений.
+// Должен вызываться до запуска сервиса.
+func (s *Service) SetMessageCounter(c messageCounter) {
+	s.msgCount = c
+}
+
 // SendMessage создает сообщение и подготавливает receipt для второго участника.
 func (s *Service) SendMessage(ctx context.Context, message store.Message) (store.Message, error) {
 	if strings.TrimSpace(message.Body) == "" {
@@ -107,6 +124,10 @@ func (s *Service) SendMessage(ctx context.Context, message store.Message) (store
 		return store.Message{}, fmt.Errorf("ensure message receipt: %w", err)
 	}
 
+	if s.msgCount != nil {
+		s.msgCount.Inc()
+	}
+
 	s.notifyNewMessage(ctx, created, receiverID)
 
 	return created, nil
@@ -114,8 +135,8 @@ func (s *Service) SendMessage(ctx context.Context, message store.Message) (store
 
 func (s *Service) notifyNewMessage(ctx context.Context, msg store.Message, receiverID string) {
 	payload := map[string]any{
-		"message_id": msg.ID,
-		"dialog_id":  msg.DialogID,
+		keyMessageID: msg.ID,
+		keyDialogID:  msg.DialogID,
 		"sender_id":  msg.SenderID,
 		"body":       msg.Body,
 		"created_at": msg.CreatedAt.UTC().Format(time.RFC3339),
@@ -132,9 +153,9 @@ func (s *Service) notifyNewMessage(ctx context.Context, msg store.Message, recei
 
 	deliveredAt := time.Now().UTC()
 	s.notifier.Send(ctx, msg.SenderID, hub.NewEvent("message_delivered", map[string]any{
-		"message_id":   msg.ID,
-		"dialog_id":    msg.DialogID,
-		"user_id":      receiverID,
+		keyMessageID:   msg.ID,
+		keyDialogID:    msg.DialogID,
+		keyUserID:      receiverID,
 		"delivered_at": deliveredAt.Format(time.RFC3339),
 	}))
 }
@@ -254,9 +275,9 @@ func (s *Service) MarkRead(ctx context.Context, messageID, userID string, readAt
 	}
 
 	s.notifier.Send(ctx, msg.SenderID, hub.NewEvent("message_read", map[string]any{
-		"message_id": messageID,
-		"dialog_id":  msg.DialogID,
-		"user_id":    userID,
+		keyMessageID: messageID,
+		keyDialogID:  msg.DialogID,
+		keyUserID:    userID,
 		"read_at":    readAt.UTC().Format(time.RFC3339),
 	}))
 
@@ -280,8 +301,8 @@ func (s *Service) startMessageTTL(ctx context.Context, msg store.Message, reader
 	}
 
 	ttlEvent := hub.NewEvent("message_ttl_started", map[string]any{
-		"message_id": msg.ID,
-		"dialog_id":  msg.DialogID,
+		keyMessageID: msg.ID,
+		keyDialogID:  msg.DialogID,
 		"expires_at": expiresAt.UTC().Format(time.RFC3339),
 	})
 
@@ -299,7 +320,7 @@ func (s *Service) sendBadgeUpdated(ctx context.Context, userID string) {
 	}
 
 	s.notifier.Send(ctx, userID, hub.NewEvent("badge_updated", map[string]any{
-		"user_id":      userID,
+		keyUserID:      userID,
 		"unread_count": unreadCount,
 		"badge":        unreadCount,
 		"reason":       "message_read",

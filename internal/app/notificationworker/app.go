@@ -16,19 +16,22 @@ import (
 )
 
 const (
-	defaultPollInterval = 5 * time.Second
-	defaultBatchSize    = 20
-	defaultMaxAttempts  = 5
-	defaultBackoffBase  = 30 * time.Second
-	defaultProvider     = "dev-log"
+	defaultPollInterval    = 5 * time.Second
+	defaultBatchSize       = 20
+	defaultMaxAttempts     = 5
+	defaultBackoffBase     = 30 * time.Second
+	defaultProvider        = "dev-log"
+	defaultOutboxRetention = 7 * 24 * time.Hour
+	housekeepingInterval   = 24 * time.Hour
 )
 
 // App инкапсулирует зависимости и жизненный цикл notification-worker.
 type App struct {
-	log    *slog.Logger
-	store  *store.Store
-	worker *notification.Worker
-	cfg    config.Config
+	log        *slog.Logger
+	store      *store.Store
+	worker     *notification.Worker
+	outboxRepo *store.NotificationOutboxRepository
+	cfg        config.Config
 }
 
 // New создаёт и инициализирует App.
@@ -80,10 +83,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	w := notification.NewWorker(outboxRepo, deviceRepo, provider, log, workerCfg)
 
 	return &App{
-		log:    log,
-		store:  postgresStore,
-		worker: w,
-		cfg:    cfg,
+		log:        log,
+		store:      postgresStore,
+		worker:     w,
+		outboxRepo: outboxRepo,
+		cfg:        cfg,
 	}, nil
 }
 
@@ -95,12 +99,15 @@ func (a *App) Run(ctx context.Context) error {
 	}()
 
 	pollInterval := pollIntervalFromCfg(a.cfg.NotificationWorker.PollIntervalSeconds)
+	retention := retentionFromCfg(a.cfg.NotificationWorker.OutboxRetentionSeconds)
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		a.worker.Run(ctx, pollInterval)
 	}()
+
+	go a.runHousekeepingLoop(ctx, retention)
 
 	<-ctx.Done()
 	cause := context.Cause(ctx)
@@ -147,4 +154,40 @@ func pollIntervalFromCfg(seconds int) time.Duration {
 		return time.Duration(seconds) * time.Second
 	}
 	return defaultPollInterval
+}
+
+func retentionFromCfg(seconds int) time.Duration {
+	if seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	return defaultOutboxRetention
+}
+
+// runHousekeepingLoop выполняет очистку outbox при старте, затем раз в housekeepingInterval.
+func (a *App) runHousekeepingLoop(ctx context.Context, retention time.Duration) {
+	a.log.Info("outbox_housekeeping: запуск", slog.Duration("retention", retention))
+	a.runHousekeeping(ctx, retention)
+
+	ticker := time.NewTicker(housekeepingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.runHousekeeping(ctx, retention)
+		}
+	}
+}
+
+func (a *App) runHousekeeping(ctx context.Context, retention time.Duration) {
+	n, err := a.outboxRepo.DeleteSent(ctx, retention)
+	if err != nil {
+		a.log.Error("outbox_housekeeping: ошибка очистки", slog.String("error", err.Error()))
+		return
+	}
+	if n > 0 {
+		a.log.Info("outbox_housekeeping: удалено записей", slog.Int64("count", n))
+	}
 }

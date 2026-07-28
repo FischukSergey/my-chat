@@ -21,6 +21,10 @@ const (
 
 	userA = "user-a"
 	userB = "user-b"
+
+	msgID1    = "msg-1"
+	msgBody   = "hello"
+	msgBodyNL = "hello world"
 )
 
 // --- mock types ---
@@ -131,7 +135,7 @@ func TestSendMessage_EmptyBody(t *testing.T) {
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
-		ID:       "msg-1",
+		ID:       msgID1,
 		DialogID: "dialog-1",
 		SenderID: userA,
 		Body:     "   ",
@@ -158,10 +162,10 @@ func TestSendMessage_ForbiddenDialog(t *testing.T) {
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
-		ID:       "msg-1",
+		ID:       msgID1,
 		DialogID: "d1",
 		SenderID: "intruder",
-		Body:     "hello",
+		Body:     msgBody,
 	})
 	if !errors.Is(err, chat.ErrForbiddenDialogAccess) {
 		t.Errorf("expected ErrForbiddenDialogAccess, got %v", err)
@@ -199,15 +203,15 @@ func TestSendMessage_ReceiverOffline(t *testing.T) {
 	)
 
 	msg, err := svc.SendMessage(context.Background(), store.Message{
-		ID:       "msg-1",
+		ID:       msgID1,
 		DialogID: "d1",
 		SenderID: userA,
-		Body:     "hello",
+		Body:     msgBody,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if msg.Body != "hello" {
+	if msg.Body != msgBody {
 		t.Errorf("unexpected body: %q", msg.Body)
 	}
 	if notifyCount != 1 {
@@ -246,10 +250,10 @@ func TestSendMessage_ReceiverOnline(t *testing.T) {
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
-		ID:       "msg-1",
+		ID:       msgID1,
 		DialogID: "d1",
 		SenderID: userA,
-		Body:     "hello",
+		Body:     msgBody,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -279,10 +283,10 @@ func TestMarkRead_NotifiesSender(t *testing.T) {
 		&mockMessageRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
 				return store.Message{
-					ID:       "msg-1",
+					ID:       msgID1,
 					DialogID: "d1",
 					SenderID: userA,
-					Body:     "hello",
+					Body:     msgBody,
 				}, nil
 			},
 		},
@@ -299,7 +303,7 @@ func TestMarkRead_NotifiesSender(t *testing.T) {
 		noTTL,
 	)
 
-	if err := svc.MarkRead(context.Background(), "msg-1", userB, time.Now()); err != nil {
+	if err := svc.MarkRead(context.Background(), msgID1, userB, time.Now()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -342,7 +346,7 @@ func TestListMessages_Success(t *testing.T) {
 	t.Parallel()
 
 	want := []store.Message{
-		{ID: "msg-1", DialogID: "d1", SenderID: userA, Body: "hello"},
+		{ID: msgID1, DialogID: "d1", SenderID: userA, Body: msgBody},
 	}
 
 	svc := chat.NewService(
@@ -432,7 +436,7 @@ func TestSendMessage_ReceiverOffline_EnqueuesOutbox(t *testing.T) {
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
-		ID:       "msg-1",
+		ID:       msgID1,
 		DialogID: "d1",
 		SenderID: userA,
 		Body:     "hello outbox",
@@ -492,7 +496,7 @@ func TestSendMessage_ReceiverOnline_NoOutbox(t *testing.T) {
 	)
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
-		ID:       "msg-1",
+		ID:       msgID1,
 		DialogID: "d1",
 		SenderID: userA,
 		Body:     "hello online",
@@ -621,10 +625,10 @@ func TestMarkRead_WithTTL_StartsCountdown(t *testing.T) {
 		&mockMessageRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
 				return store.Message{
-					ID:        "msg-1",
+					ID:        msgID1,
 					DialogID:  "d1",
 					SenderID:  userA,
-					Body:      "hello",
+					Body:      msgBody,
 					ExpiresAt: nil, // ещё не прочитано
 				}, nil
 			},
@@ -642,7 +646,7 @@ func TestMarkRead_WithTTL_StartsCountdown(t *testing.T) {
 	)
 
 	readAt := time.Now().UTC()
-	if err := svc.MarkRead(context.Background(), "msg-1", userB, readAt); err != nil {
+	if err := svc.MarkRead(context.Background(), msgID1, userB, readAt); err != nil {
 		t.Fatalf("MarkRead: %v", err)
 	}
 
@@ -671,10 +675,10 @@ func TestMarkRead_WithTTL_SendsTTLStartedEventToBoth(t *testing.T) {
 		&mockMessageRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
 				return store.Message{
-					ID:        "msg-1",
+					ID:        msgID1,
 					DialogID:  "d1",
 					SenderID:  userA,
-					Body:      "hello",
+					Body:      msgBody,
 					ExpiresAt: nil,
 				}, nil
 			},
@@ -692,7 +696,7 @@ func TestMarkRead_WithTTL_SendsTTLStartedEventToBoth(t *testing.T) {
 		5*time.Minute,
 	)
 
-	if err := svc.MarkRead(context.Background(), "msg-1", userB, time.Now()); err != nil {
+	if err := svc.MarkRead(context.Background(), msgID1, userB, time.Now()); err != nil {
 		t.Fatalf("MarkRead: %v", err)
 	}
 
@@ -726,10 +730,10 @@ func TestMarkRead_WithTTL_AlreadyExpiring_NoSecondStart(t *testing.T) {
 		&mockMessageRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
 				return store.Message{
-					ID:        "msg-1",
+					ID:        msgID1,
 					DialogID:  "d1",
 					SenderID:  userA,
-					Body:      "hello",
+					Body:      msgBody,
 					ExpiresAt: &alreadyExpiring, // уже прочитано ранее
 				}, nil
 			},
@@ -746,7 +750,7 @@ func TestMarkRead_WithTTL_AlreadyExpiring_NoSecondStart(t *testing.T) {
 		5*time.Minute,
 	)
 
-	if err := svc.MarkRead(context.Background(), "msg-1", userB, time.Now()); err != nil {
+	if err := svc.MarkRead(context.Background(), msgID1, userB, time.Now()); err != nil {
 		t.Fatalf("MarkRead: %v", err)
 	}
 
@@ -765,10 +769,10 @@ func TestMarkRead_WithoutTTL_NoExpiresAt(t *testing.T) {
 		&mockMessageRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
 				return store.Message{
-					ID:        "msg-1",
+					ID:        msgID1,
 					DialogID:  "d1",
 					SenderID:  userA,
-					Body:      "hello",
+					Body:      msgBody,
 					ExpiresAt: nil,
 				}, nil
 			},
@@ -785,7 +789,7 @@ func TestMarkRead_WithoutTTL_NoExpiresAt(t *testing.T) {
 		noTTL,
 	)
 
-	if err := svc.MarkRead(context.Background(), "msg-1", userB, time.Now()); err != nil {
+	if err := svc.MarkRead(context.Background(), msgID1, userB, time.Now()); err != nil {
 		t.Fatalf("MarkRead: %v", err)
 	}
 
@@ -801,9 +805,9 @@ func TestBuildPreview_NormalizesNewlines(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"hello\nworld", "hello world"},
-		{"hello\r\nworld", "hello world"},
-		{"hello\rworld", "hello world"},
+		{"hello\nworld", msgBodyNL},
+		{"hello\r\nworld", msgBodyNL},
+		{"hello\rworld", msgBodyNL},
 		{"no newlines", "no newlines"},
 	}
 
@@ -829,10 +833,10 @@ func TestMarkRead_SendsBadgeUpdatedToReader(t *testing.T) {
 		&mockMessageRepo{
 			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
 				return store.Message{
-					ID:       "msg-1",
+					ID:       msgID1,
 					DialogID: "d1",
 					SenderID: userA,
-					Body:     "hello",
+					Body:     msgBody,
 				}, nil
 			},
 		},
@@ -852,7 +856,7 @@ func TestMarkRead_SendsBadgeUpdatedToReader(t *testing.T) {
 		noTTL,
 	)
 
-	if err := svc.MarkRead(context.Background(), "msg-1", userB, time.Now()); err != nil {
+	if err := svc.MarkRead(context.Background(), msgID1, userB, time.Now()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

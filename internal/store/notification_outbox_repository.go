@@ -112,6 +112,23 @@ func (r *NotificationOutboxRepository) MarkSent(ctx context.Context, id string) 
 	return nil
 }
 
+// DeleteSent удаляет задачи со статусом 'sent', чей updated_at старше olderThan.
+// Возвращает количество удалённых строк.
+func (r *NotificationOutboxRepository) DeleteSent(ctx context.Context, olderThan time.Duration) (int64, error) {
+	cutoff := time.Now().UTC().Add(-olderThan)
+	const q = `
+		DELETE FROM notification_outbox
+		 WHERE status = 'sent'
+		   AND updated_at < $1`
+
+	tag, err := r.db.Exec(ctx, q, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("delete sent outbox tasks: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}
+
 // MarkFailed переводит задачу в статус 'failed' с ошибкой и задержкой до следующей попытки.
 func (r *NotificationOutboxRepository) MarkFailed(ctx context.Context, id string, lastErr string, nextAttemptAt time.Time) error {
 	const q = `

@@ -10,6 +10,7 @@ import (
 
 	"my-chat/internal/config"
 	"my-chat/internal/logger"
+	"my-chat/internal/metrics"
 	"my-chat/internal/services/expirer"
 	"my-chat/internal/store"
 )
@@ -66,6 +67,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	exp := expirer.New(messageRepo, wsOutboxRepo, log, batchSize)
+	exp.SetExpiredCounter(metrics.MessageExpiredTotal)
 
 	return &App{
 		logger:  log,
@@ -82,6 +84,15 @@ func (a *App) Run(ctx context.Context) error {
 		a.store.Close()
 		a.logger.Info("подключение к PostgreSQL закрыто")
 	}()
+
+	// Сервер метрик на отдельном порту (только internal трафик).
+	if a.cfg.Servers.Metrics.IsConfigured() {
+		go func() {
+			if err := metrics.Serve(ctx, a.cfg.Servers.Metrics.Addr, a.logger); err != nil {
+				a.logger.Error("metrics сервер завершился с ошибкой", slog.String("error", err.Error()))
+			}
+		}()
+	}
 
 	interval := intervalFromCfg(a.cfg.Expirer.IntervalSeconds)
 
