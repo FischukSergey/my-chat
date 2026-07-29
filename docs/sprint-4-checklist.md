@@ -140,12 +140,14 @@
 
 ## 11) GitHub Actions CI/CD
 
-- [ ] Создать `.github/workflows/ci.yml`:
+- [x] Создать `.github/workflows/ci.yml`:
   - job `lint`: `golangci-lint run ./...` (через Docker или direct install).
   - job `test`: `go test -race -short ./...`.
   - job `test-integration`: docker-compose up postgres + `go test -tags=integration ./...`.
   - job `build`: `go build ./cmd/...`.
 - [ ] Убедиться, что все jobs проходят на `main` ветке.
+
+Примечание: создан `.github/workflows/ci.yml` с 4 jobs. `lint` — `golangci/golangci-lint-action@v6` версия v2.12.2 (совпадает с Taskfile). `test` — `go test -race -short ./...`. `test-integration` — GH Actions service postgres:15-alpine (порт 33433:5432, healthcheck идентичен `docker-compose.test.yml`), затем `go test -race -count=1 -tags integration ./...` с `TEST_DATABASE_URL`. `build` — `go build ./cmd/...`. Go 1.25 везде. Триггеры: push/PR на `main`.
 
 ---
 
