@@ -74,6 +74,9 @@ services:
     command: ["-config", "configs/config.message-expirer.docker.local.yaml"]
     ports:
       - "9101:9101"
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   prometheus:

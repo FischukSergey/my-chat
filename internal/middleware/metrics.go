@@ -1,6 +1,9 @@
 package middleware
 
 import (
+	"bufio"
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -19,6 +22,16 @@ type statusRecorder struct {
 func (sr *statusRecorder) WriteHeader(status int) {
 	sr.status = status
 	sr.ResponseWriter.WriteHeader(status)
+}
+
+// Hijack реализует http.Hijacker — необходим для WebSocket-апгрейда.
+// Делегирует вызов к оборачиваемому ResponseWriter.
+func (sr *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := sr.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
+	}
+	return h.Hijack()
 }
 
 // PrometheusMiddleware собирает метрики http_requests_total и http_request_duration_seconds.

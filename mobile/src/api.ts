@@ -169,3 +169,41 @@ export async function getUnreadCount(): Promise<number> {
   const data = (await res.json()) as { unread_count: number };
   return data.unread_count;
 }
+
+// --- Chat API ---
+
+export interface Message {
+  id: string;
+  dialog_id: string;
+  sender_id: string;
+  body: string;
+  created_at: string;
+  expires_at: string | null;
+}
+
+export async function getMessages(
+  dialogId: string,
+  limit = 50,
+  before?: string,
+): Promise<Message[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (before) params.set("before", before);
+  const res = await fetchAuth(`/api/v1/dialogs/${dialogId}/messages?${params}`);
+  if (!res.ok) throw new Error(`getMessages: ${res.status}`);
+  const data = (await res.json()) as { items: Message[]; next_before?: string };
+  return data.items;
+}
+
+export async function sendMessage(dialogId: string, body: string): Promise<Message> {
+  const res = await fetchAuth(`/api/v1/dialogs/${dialogId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) throw new Error(`sendMessage: ${res.status}`);
+  const data = (await res.json()) as { message: Message };
+  return data.message;
+}
+
+export async function markRead(messageId: string): Promise<void> {
+  await fetchAuth(`/api/v1/messages/${messageId}/read`, { method: "POST" });
+}

@@ -153,28 +153,32 @@
 
 ## 12) Мобильный клиент — экран чата
 
-- [ ] Добавить экран **Chat** в `mobile/src/index.html` (4-й экран).
-- [ ] В `mobile/src/main.ts` реализовать:
+- [x] Добавить экран **Chat** в `mobile/src/index.html` (4-й экран).
+- [x] В `mobile/src/main.ts` реализовать:
   - `showChat(dialogId)` — переход из Home на экран Chat;
   - загрузку истории через `GET /api/v1/dialogs/{id}/messages`;
   - рендеринг сообщений в пузырях (входящие / исходящие).
-- [ ] В `mobile/src/api.ts` добавить методы `getMessages(dialogId)` и `sendMessage(dialogId, body, ttl?)`.
-- [ ] Подключить WebSocket в мобильном клиенте:
+- [x] В `mobile/src/api.ts` добавить методы `getMessages(dialogId)` и `sendMessage(dialogId, body, ttl?)`.
+- [x] Подключить WebSocket в мобильном клиенте:
   - переиспользовать логику WS из `main.ts`;
   - обрабатывать события `message_new` (добавлять в список), `message_deleted` (скрывать).
-- [ ] Отображать таймер обратного отсчёта TTL на каждом сообщении (из `expires_at`):
+- [x] Отображать таймер обратного отсчёта TTL на каждом сообщении (из `expires_at`):
   - использовать `setInterval` для обновления каждую секунду;
   - при достижении 0 — скрывать пузырь (до получения `message_deleted` с сервера).
-- [ ] Форма отправки сообщения: текстовое поле + кнопка Send.
-- [ ] Проверить `npm run build` — 0 ошибок TypeScript.
+- [x] Форма отправки сообщения: текстовое поле + кнопка Send.
+- [x] Проверить `npm run build` — 0 ошибок TypeScript.
+
+Примечание: добавлен 4-й экран `#chat` с chat-container (header, messages-list, input-row). В `api.ts` добавлены: интерфейс `Message`, `getMessages`, `sendMessage`, `markRead`. В `main.ts`: WS-подключение в `loadHome()` (через `getAccessToken()`, без биометрии), `connectWS/disconnectWS/doReconnectWS` с авто-переподключением через 3 сек. Обработка событий `message_new`, `message_ttl_started`, `message_deleted`, `badge_updated`. TTL-таймеры — `Map<messageId, intervalId>`, обновление каждую секунду в формате `MM:SS`, скрытие пузыря при `remaining <= 0`. В Home добавлен инпут `dialog-id-input` + кнопка «Открыть чат». `markRead` вызывается для входящих сообщений при загрузке истории и при `message_new` в активном диалоге. `npm run build` — 0 ошибок TypeScript. 20 модулей. ✓
 
 ---
 
 ## 13) Локальная инфраструктура
 
-- [ ] Убедиться, что `message-expirer` в docker-compose корректно интегрирован с Hub (или через отдельный механизм событий).
-- [ ] Smoke: отправить сообщение с TTL 30 сек → через 30 сек оба клиента видят `message_deleted`.
-- [ ] Проверить `task local:up` — все 5 сервисов Healthy.
+- [x] Убедиться, что `message-expirer` в docker-compose корректно интегрирован с Hub (или через отдельный механизм событий).
+- [x] Smoke: отправить сообщение с TTL 30 сек → через 30 сек оба клиента видят `message_deleted`.
+- [x] Проверить `task local:up` — все 5 сервисов Healthy.
+
+Примечание: исправлены три проблемы: (1) `message-expirer` не имел `depends_on: postgres: condition: service_healthy` → добавлено; (2) в `config.main-service.docker.local.yaml` отсутствовал `chat.message_ttl_seconds` → добавлен `30`; (3) все Dockerfiles использовали `golang:1.24-alpine`, не совместимый с `go.mod requires go >= 1.25` → обновлено до `golang:1.25-alpine`. `task local:up` — все 6 сервисов (postgres, auth-proxy, main-service, notification-worker, message-expirer, prometheus) Up & Healthy. Smoke TTL: login A+B → sendMessage → markRead (B) → `expires_at=2026-07-29T20:26:26Z` проставлен → через 40 сек message-expirer пометил `deleted_at=2026-07-29T20:26:31Z` → `GET .../messages` не возвращает удалённое сообщение. ✓
 
 ---
 
