@@ -1,0 +1,19 @@
+global:
+  env: prod
+
+log:
+  level: info
+  format: json
+  service_name: message-expirer
+
+servers:
+  metrics:
+    addr: 0.0.0.0:9101
+
+database:
+  dsn: ${DATABASE_DSN}
+  auto_migrate: false
+
+expirer:
+  interval_seconds: 10
+  batch_size: 100

@@ -23,42 +23,53 @@
 
 ## 2) Prod Dockerfiles
 
-- [ ] Проверить и при необходимости дополнить `prod.Dockerfile` (main-service):
+- [x] Проверить и при необходимости дополнить `prod.Dockerfile` (main-service):
   - multi-stage build (golang:alpine → alpine);
   - копирование конфигов в образ;
   - `EXPOSE 8080`.
-- [ ] Проверить `auth-proxy.Dockerfile` (аналогичная структура).
-- [ ] Проверить `notification-worker.Dockerfile`.
-- [ ] Проверить `message-expirer.Dockerfile`.
-- [ ] Убедиться, что все Dockerfile используют `go 1.25` (или текущую версию из `go.mod`).
-- [ ] Проверить `go build ./...` внутри каждого Dockerfile — сборка без ошибок.
+  > Добавлены: `ca-certificates`, `-ldflags="-s -w"` (уменьшение размера бинаря), `EXPOSE 9100` (метрики).
+- [x] Проверить `auth-proxy.Dockerfile` (аналогичная структура).
+  > Добавлены: `ca-certificates`, `-ldflags="-s -w"`.
+- [x] Проверить `notification-worker.Dockerfile`.
+  > Добавлены: `ca-certificates`, `-ldflags="-s -w"`.
+- [x] Проверить `message-expirer.Dockerfile`.
+  > Добавлены: `ca-certificates`, `-ldflags="-s -w"`, `EXPOSE 9101` (метрики).
+- [x] Убедиться, что все Dockerfile используют `go 1.25` (или текущую версию из `go.mod`).
+  > Все используют `golang:1.25-alpine`, совпадает с `go 1.25.0` в `go.mod`.
+- [x] Проверить `go build ./...` внутри каждого Dockerfile — сборка без ошибок.
+  > `go build ./...` выполнен локально — exit code 0, ошибок нет.
 
 ---
 
 ## 3) Prod конфиги сервисов
 
-- [ ] Создать `configs/config.main-service.prod.yaml`:
+- [x] Создать `configs/config.main-service.prod.yaml`:
   - `servers.client.addr: 0.0.0.0:8080`;
   - `servers.metrics.addr: 0.0.0.0:9100`;
   - `database.dsn` через env-переменную `${DATABASE_DSN}`;
   - `jwt.secret` через env-переменную `${JWT_SECRET}`;
   - `log.level: info`, `log.format: json`;
-  - `chat.message_ttl_seconds: 300`;
+  - `chat.message_ttl_seconds: 60`;
   - `cors.allowed_origins` — перечислить prod домен.
-- [ ] Создать `configs/config.auth-proxy.prod.yaml`:
+  > Создан. `cors.allowed_origins: [https://beepru.ru]`, `log.format: json`, `message_ttl_seconds: 60`.
+- [x] Создать `configs/config.auth-proxy.prod.yaml`:
   - аналогичная структура с `${JWT_SECRET}`, `${DATABASE_DSN}`.
-- [ ] Создать `configs/config.notification-worker.prod.yaml`:
+  > Создан. `auto_migrate: false` (миграциями владеет main-service), `cors.allowed_origins: [https://beepru.ru]`.
+- [x] Создать `configs/config.notification-worker.prod.yaml`:
   - `worker.provider: noop` (пока нет APNs/FCM).
-- [ ] Создать `configs/config.message-expirer.prod.yaml`:
+  > Создан. `notification_worker.provider: noop`.
+- [x] Создать `configs/config.message-expirer.prod.yaml`:
   - `servers.metrics.addr: 0.0.0.0:9101`;
   - `expirer.interval_seconds: 10`.
-- [ ] Убедиться, что конфиги читают секреты из env-переменных (cleanenv поддерживает `${VAR}` синтаксис).
+  > Создан.
+- [x] Убедиться, что конфиги читают секреты из env-переменных (cleanenv поддерживает `${VAR}` синтаксис).
+  > Подтверждено: `cleanenv.ReadConfig` поддерживает `${VAR}` подстановку. `DATABASE_DSN` и `JWT_SECRET` передаются через env.
 
 ---
 
 ## 4) docker-compose.prod.yml
 
-- [ ] Создать/переписать `deploy/prod/docker-compose.prod.yml` со всеми сервисами:
+- [x] Создать/переписать `deploy/prod/docker-compose.prod.yml` со всеми сервисами:
   - `postgres` (без публичного порта, healthcheck, именованный volume);
   - `main-service` (depends_on postgres, читает prod-конфиг);
   - `auth-proxy` (depends_on postgres);
@@ -66,12 +77,17 @@
   - `message-expirer` (depends_on postgres);
   - `nginx` (ports: 80:80, 443:443, volume с certbot-сертификатами);
   - `certbot` (для получения и обновления SSL-сертификата).
-- [ ] Все сервисы (кроме nginx) — **без** проброса портов наружу.
-- [ ] Общая docker-сеть `my-chat-net` для всех сервисов.
-- [ ] Переменные окружения берутся из `.env` файла (`env_file: .env`).
-- [ ] Добавить `restart: unless-stopped` всем сервисам.
-- [ ] Добавить healthcheck для `postgres` и `main-service`.
-- [ ] Создать `.env.example` с placeholder-значениями для всех переменных.
+  > Создан полный prod-стек. certbot настроен на автопродление каждые 12 часов через webroot.
+- [x] Все сервисы (кроме nginx) — **без** проброса портов наружу.
+  > Только nginx имеет `ports: 80:80, 443:443`. Остальные сервисы общаются через внутреннюю сеть.
+- [x] Общая docker-сеть `my-chat-net` для всех сервисов.
+- [x] Переменные окружения берутся из `.env` файла (`env_file: .env`).
+  > Все Go-сервисы используют `env_file: .env`. postgres берёт `POSTGRES_*` переменные напрямую.
+- [x] Добавить `restart: unless-stopped` всем сервисам.
+- [x] Добавить healthcheck для `postgres` и `main-service`.
+  > postgres: `pg_isready`, интервал 10s. main-service: `wget /health`, интервал 15s.
+- [x] Создать `.env.example` с placeholder-значениями для всех переменных.
+  > Уже создан в пункте 1. Содержит все нужные переменные.
 
 ---
 

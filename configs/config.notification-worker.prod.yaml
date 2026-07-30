@@ -1,0 +1,19 @@
+global:
+  env: prod
+
+log:
+  level: info
+  format: json
+  service_name: notification-worker
+
+database:
+  dsn: ${DATABASE_DSN}
+  auto_migrate: false
+
+notification_worker:
+  poll_interval_seconds: 5
+  batch_size: 20
+  max_attempts: 5
+  backoff_base_seconds: 30
+  provider: noop
+  outbox_retention_seconds: 604800
