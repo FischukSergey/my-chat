@@ -184,15 +184,17 @@
 
 ## 14) Тесты и качество
 
-- [ ] Integration-тест: `SendMessage` → `ExpireMessages` → `ListMessages` возвращает пустой список.
-- [ ] Integration-тест: WS клиент получает `message_deleted` при истечении TTL.
-- [ ] Integration-тест: reconnect после истечения TTL не видит удалённых сообщений.
-- [ ] Unit-тест: login с неактивным пользователем → 403.
-- [ ] Unit-тест: rate-limit на login (>10 попыток → 429).
-- [ ] Проверить `task fmt`.
-- [ ] Проверить `task lint` — 0 issues.
-- [ ] Проверить `task test` — все unit-тесты PASS.
-- [ ] Проверить `task test:integration` — все integration-тесты PASS.
+- [x] Integration-тест: `SendMessage` → `ExpireMessages` → `ListMessages` возвращает пустой список.
+- [x] Integration-тест: WS клиент получает `message_deleted` при истечении TTL.
+- [x] Integration-тест: reconnect после истечения TTL не видит удалённых сообщений.
+- [x] Unit-тест: login с неактивным пользователем → 403.
+- [x] Unit-тест: rate-limit на login (>10 попыток → 429).
+- [x] Проверить `task fmt`.
+- [x] Проверить `task lint` — 0 issues.
+- [x] Проверить `task test` — все unit-тесты PASS.
+- [x] Проверить `task test:integration` — все integration-тесты PASS.
+
+Примечание: три новых integration-теста в `internal/services/chat/ttl_integration_test.go` покрывают полный TTL-пайплайн: `TestIntegration_TTL_ExpireMessages_ListEmpty`, `TestIntegration_TTL_WsDelivery_MessageDeletedEvent`, `TestIntegration_TTL_Reconnect_NoDeletedMessages`. Три unit-теста rate-limit в `internal/app/authproxy/middleware_test.go` (с экспортами через `export_test.go`). `task lint` — 0 issues; `task test` и `task test:integration` — все PASS.
 
 ---
 

@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"bufio"
-	"fmt"
+	"errors"
 	"net"
 	"net/http"
 	"strconv"
@@ -29,7 +29,7 @@ func (sr *statusRecorder) WriteHeader(status int) {
 func (sr *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	h, ok := sr.ResponseWriter.(http.Hijacker)
 	if !ok {
-		return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
+		return nil, nil, errors.New("underlying ResponseWriter does not implement http.Hijacker")
 	}
 	return h.Hijack()
 }
