@@ -159,8 +159,9 @@ func TestIntegration_TTL_ExpireMessages_ListEmpty(t *testing.T) {
 
 // TestIntegration_TTL_WsDelivery_MessageDeletedEvent проверяет пункт 14 чеклиста:
 // после expirer.Tick оба участника диалога получают message_deleted через wsdelivery.
+// Тест намеренно не параллельный: ClaimBatch работает с глобальной таблицей ws_event_outbox,
+// параллельный запуск создаёт гонку на владение записями.
 func TestIntegration_TTL_WsDelivery_MessageDeletedEvent(t *testing.T) {
-	t.Parallel()
 
 	s := testDB(t)
 
@@ -210,32 +211,34 @@ func TestIntegration_TTL_WsDelivery_MessageDeletedEvent(t *testing.T) {
 		t.Fatal("wsdelivery processed 0 events; expected at least 2 (one per participant)")
 	}
 
-	deleted := h.byType(hub.EventMessageDeleted)
-	if len(deleted) < 2 {
-		t.Fatalf("expected ≥2 message_deleted events (one per participant), got %d", len(deleted))
-	}
-
-	recipients := map[string]bool{}
-	for _, ev := range deleted {
-		recipients[ev.userID] = true
-
-		rawData, err := json.Marshal(ev.event.Data)
-		if err != nil {
-			t.Fatalf("marshal event data: %v", err)
+	// Тесты работают параллельно на одной БД: ClaimBatch может забрать события
+	// от других тестов. Фильтруем только события для конкретного msg.ID этого теста.
+	var targetEvents []capturedEvent
+	for _, ev := range h.byType(hub.EventMessageDeleted) {
+		rawData, marshalErr := json.Marshal(ev.event.Data)
+		if marshalErr != nil {
+			continue
 		}
 		var payload struct {
 			MessageID string `json:"message_id"`
 			DialogID  string `json:"dialog_id"`
 		}
-		if err = json.Unmarshal(rawData, &payload); err != nil {
-			t.Fatalf("unmarshal event data: %v", err)
+		if json.Unmarshal(rawData, &payload) != nil {
+			continue
 		}
-		if payload.MessageID != msg.ID {
-			t.Errorf("message_id: want %q, got %q", msg.ID, payload.MessageID)
+		if payload.MessageID == msg.ID && payload.DialogID == dialog.ID {
+			targetEvents = append(targetEvents, ev)
 		}
-		if payload.DialogID != dialog.ID {
-			t.Errorf("dialog_id: want %q, got %q", dialog.ID, payload.DialogID)
-		}
+	}
+
+	if len(targetEvents) < 2 {
+		t.Fatalf("expected ≥2 message_deleted events for msg %q (one per participant), got %d",
+			msg.ID, len(targetEvents))
+	}
+
+	recipients := map[string]bool{}
+	for _, ev := range targetEvents {
+		recipients[ev.userID] = true
 	}
 	if !recipients[userAID] {
 		t.Errorf("userA (%s) did not receive message_deleted", userAID)
