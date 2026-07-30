@@ -162,7 +162,6 @@ func TestIntegration_TTL_ExpireMessages_ListEmpty(t *testing.T) {
 // Тест намеренно не параллельный: ClaimBatch работает с глобальной таблицей ws_event_outbox,
 // параллельный запуск создаёт гонку на владение записями.
 func TestIntegration_TTL_WsDelivery_MessageDeletedEvent(t *testing.T) {
-
 	s := testDB(t)
 
 	userAID, userBID := uuid.NewString(), uuid.NewString()
