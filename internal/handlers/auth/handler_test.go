@@ -16,6 +16,12 @@ import (
 
 // --- mock ---
 
+const (
+	testUserID       = "user_id"
+	testRefreshToken = "refresh_token"
+	testTokenValue   = "tok"
+)
+
 type mockAuthSvc struct {
 	loginFn     func(ctx context.Context, userID string, deviceID *string) (authsvc.TokenPair, error)
 	refreshFn   func(ctx context.Context, refreshToken string) (authsvc.TokenPair, error)
@@ -104,8 +110,8 @@ func TestLogin_Success(t *testing.T) {
 		},
 	}
 
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
-		jsonBody(map[string]string{"user_id": "user-1"}))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login",
+		jsonBody(map[string]string{testUserID: "user-1"}))
 	w := httptest.NewRecorder()
 
 	authhandler.New(svc).Login(w, r)
@@ -129,7 +135,7 @@ func TestLogin_Success(t *testing.T) {
 func TestLogin_MissingUserID_Returns400(t *testing.T) {
 	t.Parallel()
 
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login",
 		jsonBody(map[string]string{}))
 	w := httptest.NewRecorder()
 
@@ -152,14 +158,37 @@ func TestLogin_ServiceError_Returns500(t *testing.T) {
 		},
 	}
 
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
-		jsonBody(map[string]string{"user_id": "user-1"}))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login",
+		jsonBody(map[string]string{testUserID: "user-1"}))
 	w := httptest.NewRecorder()
 
 	authhandler.New(svc).Login(w, r)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status: want 500, got %d", w.Code)
+	}
+}
+
+func TestLogin_InactiveUser_Returns403WithUserInactiveCode(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthSvc{
+		loginFn: func(_ context.Context, _ string, _ *string) (authsvc.TokenPair, error) {
+			return authsvc.TokenPair{}, authsvc.ErrUserInactive
+		},
+	}
+
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login",
+		jsonBody(map[string]string{testUserID: "blocked-user"}))
+	w := httptest.NewRecorder()
+
+	authhandler.New(svc).Login(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status: want 403, got %d", w.Code)
+	}
+	if code := decodeErrorCode(t, w.Body); code != "user_inactive" {
+		t.Errorf("error code: want user_inactive, got %q", code)
 	}
 }
 
@@ -174,8 +203,8 @@ func TestRefresh_Success(t *testing.T) {
 		},
 	}
 
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
-		jsonBody(map[string]string{"refresh_token": "old-ref"}))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/refresh",
+		jsonBody(map[string]string{testRefreshToken: "old-ref"}))
 	w := httptest.NewRecorder()
 
 	authhandler.New(svc).Refresh(w, r)
@@ -188,7 +217,7 @@ func TestRefresh_Success(t *testing.T) {
 func TestRefresh_MissingToken_Returns400(t *testing.T) {
 	t.Parallel()
 
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/refresh",
 		jsonBody(map[string]string{}))
 	w := httptest.NewRecorder()
 
@@ -208,8 +237,8 @@ func TestRefresh_SessionRevoked_Returns401WithCorrectCode(t *testing.T) {
 		},
 	}
 
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
-		jsonBody(map[string]string{"refresh_token": "tok"}))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/refresh",
+		jsonBody(map[string]string{testRefreshToken: testTokenValue}))
 	w := httptest.NewRecorder()
 
 	authhandler.New(svc).Refresh(w, r)
@@ -231,8 +260,8 @@ func TestRefresh_SessionExpired_Returns401WithCorrectCode(t *testing.T) {
 		},
 	}
 
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
-		jsonBody(map[string]string{"refresh_token": "tok"}))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/refresh",
+		jsonBody(map[string]string{testRefreshToken: testTokenValue}))
 	w := httptest.NewRecorder()
 
 	authhandler.New(svc).Refresh(w, r)
@@ -254,8 +283,8 @@ func TestRefresh_SessionCompromised_Returns401WithCorrectCode(t *testing.T) {
 		},
 	}
 
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
-		jsonBody(map[string]string{"refresh_token": "tok"}))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/refresh",
+		jsonBody(map[string]string{testRefreshToken: testTokenValue}))
 	w := httptest.NewRecorder()
 
 	authhandler.New(svc).Refresh(w, r)
@@ -273,8 +302,8 @@ func TestRefresh_SessionCompromised_Returns401WithCorrectCode(t *testing.T) {
 func TestLogout_Success(t *testing.T) {
 	t.Parallel()
 
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout",
-		jsonBody(map[string]string{"refresh_token": "tok"}))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/logout",
+		jsonBody(map[string]string{testRefreshToken: testTokenValue}))
 	w := httptest.NewRecorder()
 
 	authhandler.New(&mockAuthSvc{}).Logout(w, r)
@@ -287,7 +316,7 @@ func TestLogout_Success(t *testing.T) {
 func TestLogout_MissingToken_Returns400(t *testing.T) {
 	t.Parallel()
 
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout",
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/logout",
 		jsonBody(map[string]string{}))
 	w := httptest.NewRecorder()
 
@@ -307,8 +336,8 @@ func TestLogout_SessionRevoked_Returns401(t *testing.T) {
 		},
 	}
 
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout",
-		jsonBody(map[string]string{"refresh_token": "tok"}))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/logout",
+		jsonBody(map[string]string{testRefreshToken: testTokenValue}))
 	w := httptest.NewRecorder()
 
 	authhandler.New(svc).Logout(w, r)

@@ -69,9 +69,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	sessionRepo := store.NewAuthSessionRepository(postgresStore)
+	userRepo := store.NewUserRepository(postgresStore)
 
 	authService := authsvc.NewService(
 		sessionRepo,
+		userRepo,
 		authsvc.Config{
 			JWTSecret:       cfg.JWT.Secret,
 			AccessTokenTTL:  time.Duration(cfg.JWT.AccessTokenTTL) * time.Second,
@@ -81,10 +83,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	)
 
 	authHandler := authhandler.New(authService)
+	rateLimiter := newIPRateLimiter()
 
 	router := chi.NewRouter()
-	router.Use(corsMiddleware)
-	router.Post("/api/v1/auth/login", authHandler.Login)
+	router.Use(corsMiddleware(cfg.CORS.AllowedOrigins))
+	router.With(LoginRateLimitMiddleware(rateLimiter)).Post("/api/v1/auth/login", authHandler.Login)
 	router.Post("/api/v1/auth/refresh", authHandler.Refresh)
 	router.Post("/api/v1/auth/logout", authHandler.Logout)
 	log.Info("маршруты auth-proxy зарегистрированы", slog.Int("routes_count", 3))
@@ -101,22 +104,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		server: server,
 		store:  postgresStore,
 	}, nil
-}
-
-// corsMiddleware разрешает cross-origin запросы для локальной отладки через /debug.
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
 }
 
 // Run запускает сервер и корректно завершает его по сигналу отмены контекста.

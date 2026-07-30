@@ -9,6 +9,9 @@ type Config struct {
 	Database           DatabaseConfig           `yaml:"database"`
 	JWT                JWTConfig                `yaml:"jwt"`
 	NotificationWorker NotificationWorkerConfig `yaml:"notification_worker"`
+	Chat               ChatConfig               `yaml:"chat"`
+	Expirer            ExpirerConfig            `yaml:"expirer"`
+	CORS               CORSConfig               `yaml:"cors"`
 }
 
 // GlobalConfig хранит глобальные параметры окружения.
@@ -25,7 +28,8 @@ type LogConfig struct {
 
 // ServersConfig хранит настройки сетевых серверов.
 type ServersConfig struct {
-	Client ClientServerConfig `yaml:"client"`
+	Client  ClientServerConfig  `yaml:"client"`
+	Metrics MetricsServerConfig `yaml:"metrics"`
 }
 
 // ClientServerConfig хранит настройки HTTP API сервера.
@@ -36,6 +40,16 @@ type ClientServerConfig struct {
 // IsConfigured проверяет, задан ли адрес клиентского сервера.
 func (c ClientServerConfig) IsConfigured() bool {
 	return c.Addr != ""
+}
+
+// MetricsServerConfig хранит настройки HTTP сервера метрик.
+type MetricsServerConfig struct {
+	Addr string `yaml:"addr" validate:"omitempty,hostname_port"`
+}
+
+// IsConfigured проверяет, задан ли адрес сервера метрик.
+func (m MetricsServerConfig) IsConfigured() bool {
+	return m.Addr != ""
 }
 
 // DatabaseConfig хранит параметры подключения к PostgreSQL.
@@ -70,4 +84,28 @@ type NotificationWorkerConfig struct {
 	MaxAttempts         int    `yaml:"max_attempts" validate:"omitempty,min=1"`
 	BackoffBaseSeconds  int    `yaml:"backoff_base_seconds" validate:"omitempty,min=1"`
 	Provider            string `yaml:"provider" validate:"omitempty,oneof=dev-log noop"`
+	// OutboxRetentionSeconds — сколько секунд хранить отправленные записи в outbox; 0 = дефолт (7 суток).
+	OutboxRetentionSeconds int `yaml:"outbox_retention_seconds" validate:"omitempty,min=3600"`
+}
+
+// ChatConfig хранит параметры сервиса чата.
+type ChatConfig struct {
+	// MessageTTLSeconds — время жизни сообщения в секундах; 0 = TTL не используется.
+	MessageTTLSeconds int `yaml:"message_ttl_seconds" validate:"omitempty,min=0"`
+}
+
+// CORSConfig хранит параметры CORS-политики.
+type CORSConfig struct {
+	// AllowedOrigins — список разрешённых источников.
+	// Если список пуст или содержит единственный элемент "*", разрешаются все origins (только для local/dev).
+	AllowedOrigins []string `yaml:"allowed_origins"`
+}
+
+// ExpirerConfig хранит параметры сервиса message-expirer.
+// Нулевые значения означают использование дефолтов в App.New.
+type ExpirerConfig struct {
+	// IntervalSeconds — интервал между запусками тикера в секундах; 0 = дефолт (10 сек).
+	IntervalSeconds int `yaml:"interval_seconds" validate:"omitempty,min=1"`
+	// BatchSize — максимальное число сообщений, обрабатываемых за одну итерацию; 0 = дефолт (100).
+	BatchSize int `yaml:"batch_size" validate:"omitempty,min=1"`
 }

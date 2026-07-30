@@ -15,6 +15,12 @@ import (
 )
 
 // setupDB подключается к тестовой БД, прогоняет миграции и возвращает *store.Store.
+
+const (
+	storeTestPlatformIOS = "ios"
+	storeTestEventNew    = "message_new"
+)
+
 func setupDB(t *testing.T) *store.Store {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
@@ -67,7 +73,7 @@ func TestDeviceRepository_Upsert_NewDevice(t *testing.T) {
 	d, err := repo.Upsert(ctx, store.Device{
 		ID:        uuid.NewString(),
 		UserID:    userID,
-		Platform:  "ios",
+		Platform:  storeTestPlatformIOS,
 		PushToken: "token-abc",
 	})
 	if err != nil {
@@ -91,7 +97,7 @@ func TestDeviceRepository_Upsert_Dedup_ReenablesDevice(t *testing.T) {
 	base := store.Device{
 		ID:        uuid.NewString(),
 		UserID:    userID,
-		Platform:  "ios",
+		Platform:  storeTestPlatformIOS,
 		PushToken: "token-same",
 	}
 
@@ -176,7 +182,7 @@ func TestDeviceRepository_ListActive_FiltersDisabled(t *testing.T) {
 		if _, err := repo.Upsert(ctx, store.Device{
 			ID:        uuid.NewString(),
 			UserID:    userID,
-			Platform:  "ios",
+			Platform:  storeTestPlatformIOS,
 			PushToken: token,
 		}); err != nil {
 			t.Fatalf("Upsert %q: %v", token, err)
@@ -211,7 +217,7 @@ func TestNotificationOutboxRepository_Enqueue_Success(t *testing.T) {
 
 	task := store.NotificationOutbox{
 		ID:        uuid.NewString(),
-		EventType: "message_new",
+		EventType: storeTestEventNew,
 		UserID:    userID,
 		Payload:   []byte(`{"message_id":"m1"}`),
 		DedupKey:  "message_new:" + uuid.NewString() + ":" + userID,
@@ -233,7 +239,7 @@ func TestNotificationOutboxRepository_Enqueue_DedupKey_IgnoresDuplicate(t *testi
 
 	first := store.NotificationOutbox{
 		ID:        uuid.NewString(),
-		EventType: "message_new",
+		EventType: storeTestEventNew,
 		UserID:    userID,
 		Payload:   []byte(`{"message_id":"m1"}`),
 		DedupKey:  dedupKey,
@@ -263,7 +269,7 @@ func TestNotificationOutboxRepository_ClaimBatch_ReturnsPendingTasks(t *testing.
 
 	if err := repo.Enqueue(ctx, store.NotificationOutbox{
 		ID:        uuid.NewString(),
-		EventType: "message_new",
+		EventType: storeTestEventNew,
 		UserID:    userID,
 		Payload:   []byte(`{"message_id":"` + msgID + `"}`),
 		DedupKey:  dedupKey,
@@ -305,7 +311,7 @@ func TestNotificationOutboxRepository_MarkSent(t *testing.T) {
 
 	if err := repo.Enqueue(ctx, store.NotificationOutbox{
 		ID:        taskID,
-		EventType: "message_new",
+		EventType: storeTestEventNew,
 		UserID:    userID,
 		Payload:   []byte(`{}`),
 		DedupKey:  dedupKey,
@@ -345,7 +351,7 @@ func TestNotificationOutboxRepository_MarkFailed_PostponesRetry(t *testing.T) {
 
 	if err := repo.Enqueue(ctx, store.NotificationOutbox{
 		ID:        taskID,
-		EventType: "message_new",
+		EventType: storeTestEventNew,
 		UserID:    userID,
 		Payload:   []byte(`{}`),
 		DedupKey:  dedupKey,

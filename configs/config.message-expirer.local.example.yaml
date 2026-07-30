@@ -7,5 +7,13 @@ log:
   service_name: message-expirer
 
 servers:
-  client:
-    addr: localhost:38083
+  metrics:
+    addr: localhost:9101
+
+database:
+  dsn: postgres://chat_service:chat_service@localhost:33432/chat_service?sslmode=disable
+  auto_migrate: false  # миграциями владеет main-service
+
+expirer:
+  interval_seconds: 10
+  batch_size: 100

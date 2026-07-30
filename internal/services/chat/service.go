@@ -25,7 +25,17 @@ var (
 
 const (
 	previewMaxRunes = 120
+
+	keyMessageID = "message_id"
+	keyDialogID  = "dialog_id"
+	keyUserID    = "user_id"
 )
+
+// messageCounter отслеживает число отправленных сообщений.
+// Реализуется prometheus.Counter; nil отключает метрику.
+type messageCounter interface {
+	Inc()
+}
 
 // Service оркестрирует операции над сообщениями и receipt-статусами.
 type Service struct {
@@ -34,6 +44,8 @@ type Service struct {
 	receipts receiptRepository
 	notifier notifier
 	outbox   outboxPublisher
+	ttl      time.Duration // 0 = сообщения не истекают
+	msgCount messageCounter
 }
 
 type dialogRepository interface {
@@ -44,6 +56,7 @@ type messageRepository interface {
 	Create(ctx context.Context, message store.Message) (store.Message, error)
 	GetByID(ctx context.Context, messageID string) (store.Message, error)
 	ListByDialog(ctx context.Context, dialogID string, limit int, before *time.Time) ([]store.Message, error)
+	SetExpiresAt(ctx context.Context, messageID string, expiresAt time.Time) error
 }
 
 type receiptRepository interface {
@@ -61,12 +74,14 @@ type outboxPublisher interface {
 }
 
 // NewService создает сервис чата.
+// ttl задаёт время жизни сообщений; 0 — без TTL.
 func NewService(
 	dialogs dialogRepository,
 	messages messageRepository,
 	receipts receiptRepository,
 	n notifier,
 	outbox outboxPublisher,
+	ttl time.Duration,
 ) *Service {
 	return &Service{
 		dialogs:  dialogs,
@@ -74,7 +89,14 @@ func NewService(
 		receipts: receipts,
 		notifier: n,
 		outbox:   outbox,
+		ttl:      ttl,
 	}
+}
+
+// SetMessageCounter устанавливает counter для отслеживания числа отправленных сообщений.
+// Должен вызываться до запуска сервиса.
+func (s *Service) SetMessageCounter(c messageCounter) {
+	s.msgCount = c
 }
 
 // SendMessage создает сообщение и подготавливает receipt для второго участника.
@@ -102,19 +124,26 @@ func (s *Service) SendMessage(ctx context.Context, message store.Message) (store
 		return store.Message{}, fmt.Errorf("ensure message receipt: %w", err)
 	}
 
+	if s.msgCount != nil {
+		s.msgCount.Inc()
+	}
+
 	s.notifyNewMessage(ctx, created, receiverID)
 
 	return created, nil
 }
 
 func (s *Service) notifyNewMessage(ctx context.Context, msg store.Message, receiverID string) {
-	newEvent := hub.NewEvent("message_new", map[string]any{
-		"message_id": msg.ID,
-		"dialog_id":  msg.DialogID,
+	payload := map[string]any{
+		keyMessageID: msg.ID,
+		keyDialogID:  msg.DialogID,
 		"sender_id":  msg.SenderID,
 		"body":       msg.Body,
 		"created_at": msg.CreatedAt.UTC().Format(time.RFC3339),
-	})
+		"expires_at": formatOptionalTime(msg.ExpiresAt),
+	}
+
+	newEvent := hub.NewEvent("message_new", payload)
 
 	receiverOnline := s.notifier.Send(ctx, receiverID, newEvent)
 	if !receiverOnline {
@@ -124,9 +153,9 @@ func (s *Service) notifyNewMessage(ctx context.Context, msg store.Message, recei
 
 	deliveredAt := time.Now().UTC()
 	s.notifier.Send(ctx, msg.SenderID, hub.NewEvent("message_delivered", map[string]any{
-		"message_id":   msg.ID,
-		"dialog_id":    msg.DialogID,
-		"user_id":      receiverID,
+		keyMessageID:   msg.ID,
+		keyDialogID:    msg.DialogID,
+		keyUserID:      receiverID,
 		"delivered_at": deliveredAt.Format(time.RFC3339),
 	}))
 }
@@ -229,6 +258,8 @@ func (s *Service) ListMessages(
 }
 
 // MarkRead отмечает сообщение как прочитанное пользователем.
+// Если задан TTL, при первом прочтении запускает таймер удаления (expires_at = readAt + ttl)
+// и рассылает обоим участникам событие message_ttl_started.
 func (s *Service) MarkRead(ctx context.Context, messageID, userID string, readAt time.Time) error {
 	if readAt.IsZero() {
 		readAt = time.Now().UTC()
@@ -244,15 +275,40 @@ func (s *Service) MarkRead(ctx context.Context, messageID, userID string, readAt
 	}
 
 	s.notifier.Send(ctx, msg.SenderID, hub.NewEvent("message_read", map[string]any{
-		"message_id": messageID,
-		"dialog_id":  msg.DialogID,
-		"user_id":    userID,
+		keyMessageID: messageID,
+		keyDialogID:  msg.DialogID,
+		keyUserID:    userID,
 		"read_at":    readAt.UTC().Format(time.RFC3339),
 	}))
 
 	s.sendBadgeUpdated(ctx, userID)
 
+	// Запускаем TTL при первом прочтении: expires_at = readAt + ttl.
+	// Операция best-effort: ошибка не откатывает MarkRead.
+	if s.ttl > 0 && msg.ExpiresAt == nil {
+		s.startMessageTTL(ctx, msg, userID, readAt)
+	}
+
 	return nil
+}
+
+// startMessageTTL устанавливает expires_at и уведомляет обоих участников диалога.
+func (s *Service) startMessageTTL(ctx context.Context, msg store.Message, readerID string, readAt time.Time) {
+	expiresAt := readAt.Add(s.ttl)
+
+	if err := s.messages.SetExpiresAt(ctx, msg.ID, expiresAt); err != nil {
+		return
+	}
+
+	ttlEvent := hub.NewEvent("message_ttl_started", map[string]any{
+		keyMessageID: msg.ID,
+		keyDialogID:  msg.DialogID,
+		"expires_at": expiresAt.UTC().Format(time.RFC3339),
+	})
+
+	// Оба участника должны запустить обратный отсчёт.
+	s.notifier.Send(ctx, msg.SenderID, ttlEvent)
+	s.notifier.Send(ctx, readerID, ttlEvent)
 }
 
 // sendBadgeUpdated пересчитывает unread и отправляет badge_updated читателю через WS.
@@ -264,7 +320,7 @@ func (s *Service) sendBadgeUpdated(ctx context.Context, userID string) {
 	}
 
 	s.notifier.Send(ctx, userID, hub.NewEvent("badge_updated", map[string]any{
-		"user_id":      userID,
+		keyUserID:      userID,
 		"unread_count": unreadCount,
 		"badge":        unreadCount,
 		"reason":       "message_read",
@@ -290,4 +346,13 @@ func receiverID(dialog store.Dialog, userID string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// formatOptionalTime форматирует *time.Time в RFC3339 строку или nil.
+func formatOptionalTime(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+
+	return t.UTC().Format(time.RFC3339)
 }

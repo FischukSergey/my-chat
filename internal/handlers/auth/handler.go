@@ -51,6 +51,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	pair, err := h.svc.Login(r.Context(), req.UserID, nil)
 	if err != nil {
+		if errors.Is(err, authsvc.ErrUserInactive) {
+			respondError(w, http.StatusForbidden, "user_inactive", "user account is inactive")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "internal", "failed to login")
 		return
 	}

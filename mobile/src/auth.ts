@@ -88,6 +88,16 @@ export async function hasRefreshToken(): Promise<boolean> {
   return !!value;
 }
 
+/**
+ * Читает refresh token без биометрии.
+ * Использовать только в среде без биометрии (браузер, dev).
+ * На устройстве с биометрией — всегда использовать getRefreshToken().
+ */
+export async function getRefreshTokenRaw(): Promise<string | null> {
+  const { value } = await Preferences.get({ key: KEY_REFRESH });
+  return value;
+}
+
 export async function getSessionId(): Promise<string | null> {
   const { value } = await Preferences.get({ key: KEY_SESSION });
   return value;

@@ -2,6 +2,13 @@ package store
 
 import "time"
 
+// User представляет пользователя системы.
+type User struct {
+	ID        string
+	Status    string // "active" | "blocked"
+	CreatedAt time.Time
+}
+
 // AuthSession представляет server-side запись refresh-сессии пользователя.
 type AuthSession struct {
 	ID          string
@@ -30,6 +37,8 @@ type Message struct {
 	SenderID  string
 	Body      string
 	CreatedAt time.Time
+	ExpiresAt *time.Time // NULL — сообщение не истекает
+	DeletedAt *time.Time // NULL — сообщение активно; soft delete
 }
 
 // Device представляет зарегистрированное устройство пользователя для push-уведомлений.
@@ -55,6 +64,16 @@ const (
 	// OutboxStatusFailed — задача превысила лимит попыток или отложена до next_attempt_at.
 	OutboxStatusFailed NotificationOutboxStatus = "failed"
 )
+
+// WSEventOutbox представляет WS-событие, ожидающее доставки конкретному пользователю.
+type WSEventOutbox struct {
+	ID          string
+	EventType   string
+	UserID      string
+	Payload     []byte     // JSONB
+	ProcessedAt *time.Time // NULL — событие ещё не обработано
+	CreatedAt   time.Time
+}
 
 // NotificationOutbox представляет задачу на отправку push-уведомления.
 type NotificationOutbox struct {

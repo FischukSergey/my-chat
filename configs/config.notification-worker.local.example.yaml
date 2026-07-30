@@ -16,3 +16,5 @@ notification_worker:
   max_attempts: 5
   backoff_base_seconds: 30
   provider: dev-log
+  # outbox_retention_seconds — срок хранения отправленных записей outbox; 0 = дефолт (7 суток = 604800 сек)
+  outbox_retention_seconds: 604800

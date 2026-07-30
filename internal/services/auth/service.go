@@ -25,6 +25,8 @@ var (
 	// ErrSessionCompromised возвращается при обнаружении повторного использования
 	// отозванного токена (reuse detection). Вся family отзывается.
 	ErrSessionCompromised = errors.New("session compromised: token reuse detected")
+	// ErrUserInactive возвращается, если аккаунт пользователя заблокирован (status != "active").
+	ErrUserInactive = errors.New("user account is inactive")
 )
 
 // Config хранит настройки сервиса аутентификации.
@@ -51,21 +53,39 @@ type sessionRepository interface {
 	RotateSession(ctx context.Context, oldSessionID string, newSession store.AuthSession) error
 }
 
+type userRepository interface {
+	FindByID(ctx context.Context, userID string) (store.User, error)
+}
+
 // Service управляет жизненным циклом сессий: login, refresh rotation, logout, reuse detection.
 type Service struct {
-	repo sessionRepository
-	cfg  Config
-	log  *slog.Logger
+	repo     sessionRepository
+	userRepo userRepository
+	cfg      Config
+	log      *slog.Logger
 }
 
 // NewService создаёт Service.
-func NewService(repo sessionRepository, cfg Config, log *slog.Logger) *Service {
-	return &Service{repo: repo, cfg: cfg, log: log}
+func NewService(repo sessionRepository, userRepo userRepository, cfg Config, log *slog.Logger) *Service {
+	return &Service{repo: repo, userRepo: userRepo, cfg: cfg, log: log}
 }
 
 // Login создаёт новую сессию и выдаёт пару токенов.
+// Возвращает ErrUserInactive, если аккаунт пользователя заблокирован.
 // deviceID опционален — передаётся при наличии зарегистрированного устройства.
 func (s *Service) Login(ctx context.Context, userID string, deviceID *string) (TokenPair, error) {
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return TokenPair{}, fmt.Errorf("find user: %w", err)
+	}
+	if user.Status != "active" {
+		s.log.Warn("auth_login_blocked",
+			slog.String("user_id", userID),
+			slog.String("status", user.Status),
+		)
+		return TokenPair{}, ErrUserInactive
+	}
+
 	sessionID := uuid.NewString()
 	familyID := uuid.NewString()
 	now := time.Now().UTC()
