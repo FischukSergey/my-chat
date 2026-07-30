@@ -4,16 +4,20 @@
 
 **Цель спринта:** полностью рабочий prod-деплой на VPS с HTTPS/WSS, автодеплоем из GitHub Actions и изоляцией секретов от git.
 
-**Предусловие:** зарегистрирован домен, добавлена A-запись `yourdomain.com → IP VPS`.
+**Предусловие:** зарегистрирован домен, добавлена A-запись `beepru.ru → IP VPS`.
 
 ---
 
 ## 1) Подготовка и контракты
 
-- [ ] Зарегистрировать домен и добавить A-запись на IP VPS.
-- [ ] Определить финальную схему маршрутизации nginx (один домен с path-based routing vs поддомены).
-- [ ] Зафиксировать prod URL в `docs/api-sprint-5.md` (базовый URL для мобильного клиента).
-- [ ] Создать `.env.example` — шаблон переменных окружения без реальных значений.
+- [x] Зарегистрировать домен и добавить A-запись на IP VPS.
+  > Домен `beepru.ru`, IP VPS `87.228.112.251`. SSH доступ: `ssh my-chat` (root@87.228.112.251, ключ `~/.ssh/my-chat-vps`).
+- [x] Определить финальную схему маршрутизации nginx (один домен с path-based routing vs поддомены).
+  > Принято: path-based routing на одном домене (`beepru.ru`). Nginx проксирует `/api/v1/...` → main-service:8080, `/ws/connect` → main-service:8080 (WS upgrade), `/auth/...` → auth-proxy:33081, `/health` → main-service:8080.
+- [x] Зафиксировать prod URL в `docs/api-sprint-5.md` (базовый URL для мобильного клиента).
+  > Создан файл `docs/api-sprint-5.md` с prod URL `https://beepru.ru`, таблицей маршрутизации и полным списком endpoints.
+- [x] Создать `.env.example` — шаблон переменных окружения без реальных значений.
+  > Создан `.env.example` в корне проекта с placeholder-значениями для всех переменных (POSTGRES_*, DATABASE_DSN, JWT_SECRET, DOMAIN, PUSH_PROVIDER, METRICS_*). Также обновлён `.gitignore`: добавлено `!.env.example` (чтобы файл не попал под паттерн `.env.*`) и `deploy/prod/certbot/`.
 
 ---
 
@@ -157,14 +161,14 @@
 
 ## 10) Smoke-тесты prod окружения
 
-- [ ] `curl https://yourdomain.com/health` → `{"status":"ok"}`.
-- [ ] `curl -k https://yourdomain.com/health` не нужен (сертификат валидный, не staging).
-- [ ] `POST https://yourdomain.com/auth/api/v1/auth/login` → получить токены.
-- [ ] `GET https://yourdomain.com/api/v1/me/unread-count` с Bearer token → 200.
-- [ ] WebSocket подключение: `wss://yourdomain.com/ws/connect` с валидным token → upgrade 101.
+- [ ] `curl https://beepru.ru/health` → `{"status":"ok"}`.
+- [ ] `curl -k https://beepru.ru/health` не нужен (сертификат валидный, не staging).
+- [ ] `POST https://beepru.ru/auth/api/v1/auth/login` → получить токены.
+- [ ] `GET https://beepru.ru/api/v1/me/unread-count` с Bearer token → 200.
+- [ ] WebSocket подключение: `wss://beepru.ru/ws/connect` с валидным token → upgrade 101.
 - [ ] Открыть мобильный клиент с телефона → нет предупреждений SSL → подключение к WS работает.
 - [ ] `docker compose -f deploy/prod/docker-compose.prod.yml ps` на VPS → все сервисы `healthy`.
-- [ ] Метрики: `https://yourdomain.com/metrics` (или прямой доступ с VPS) → prometheus text format.
+- [ ] Метрики: `https://beepru.ru/metrics` (или прямой доступ с VPS) → prometheus text format.
 
 ---
 
@@ -174,16 +178,16 @@
 - [ ] `cat .gitignore` содержит `.env`, `deploy/prod/certbot/`, `deploy/prod/nginx/ssl/`.
 - [ ] Порт 5432 (postgres) недоступен снаружи: `curl VPS_IP:5432` — connection refused.
 - [ ] Порт 8080 (main-service) недоступен снаружи: `curl VPS_IP:8080` — connection refused.
-- [ ] HSTS заголовок присутствует: `curl -I https://yourdomain.com` → `Strict-Transport-Security`.
-- [ ] HTTP автоматически редиректит на HTTPS: `curl -I http://yourdomain.com` → 301.
+- [ ] HSTS заголовок присутствует: `curl -I https://beepru.ru` → `Strict-Transport-Security`.
+- [ ] HTTP автоматически редиректит на HTTPS: `curl -I http://beepru.ru` → 301.
 - [ ] SSL grade на ssllabs.com: минимум B (рекомендуется A).
 
 ---
 
 ## 12) Критерии готовности (DoD)
 
-- [ ] `https://yourdomain.com` открывается без предупреждений на iOS/Android браузере.
-- [ ] `wss://yourdomain.com/ws/connect` устанавливает соединение с мобильного браузера.
+- [ ] `https://beepru.ru` открывается без предупреждений на iOS/Android браузере.
+- [ ] `wss://beepru.ru/ws/connect` устанавливает соединение с мобильного браузера.
 - [ ] Push в `main` → GitHub Actions зеленый → деплой на VPS автоматически без ручных действий.
 - [ ] Секреты не попадают в git (`.env` в `.gitignore`, проверено).
 - [ ] Все 5+ сервисов работают на VPS и показывают `healthy`.
@@ -194,7 +198,7 @@
 
 ## 13) Демо
 
-- [ ] Открыть `https://yourdomain.com` на реальном телефоне → нет предупреждений SSL.
+- [ ] Открыть `https://beepru.ru` на реальном телефоне → нет предупреждений SSL.
 - [ ] Войти через мобильный клиент → отправить сообщение → получить в реальном времени.
 - [ ] Показать GitHub Actions: зеленый CI + зеленый CD после последнего push.
 - [ ] Показать `docker compose ps` на VPS — все сервисы running/healthy.
