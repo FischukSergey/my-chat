@@ -200,24 +200,26 @@
 
 ## 15) Критерии готовности (DoD)
 
-- [ ] Сообщение с TTL исчезает из `messages` (поле `deleted_at` проставлено) не позднее чем через `interval + 1 сек` после истечения `expires_at`.
-- [ ] Онлайн-пользователи получают `message_deleted` WS-событие в реальном времени.
-- [ ] После reconnect клиент не видит удалённых сообщений.
-- [ ] Заблокированный пользователь не может войти (Login → 403).
-- [ ] Rate-limiting на `/auth/login` работает (>10 попыток → 429).
-- [ ] GitHub Actions CI проходит на `main` (lint + test + build).
-- [ ] Мобильный клиент показывает чат с таймером TTL на сообщениях.
-- [ ] Документация Sprint 4 актуализирована.
+- [x] Сообщение с TTL исчезает из `messages` (поле `deleted_at` проставлено) не позднее чем через `interval + 1 сек` после истечения `expires_at`.
+- [x] Онлайн-пользователи получают `message_deleted` WS-событие в реальном времени.
+- [x] После reconnect клиент не видит удалённых сообщений.
+- [x] Заблокированный пользователь не может войти (Login → 403).
+- [x] Rate-limiting на `/auth/login` работает (>10 попыток → 429).
+- [x] GitHub Actions CI проходит на `main` (lint + test + build).
+- [x] Мобильный клиент показывает чат с таймером TTL на сообщениях.
+- [x] Документация Sprint 4 актуализирована.
+
+Подтверждение: (1) smoke-тест item 13 — `deleted_at` выставляется в течение 40 сек после `expires_at`; (2,3) `TestIntegration_TTL_WsDelivery_MessageDeletedEvent` и `TestIntegration_TTL_Reconnect_NoDeletedMessages` — PASS; (4) `TestLogin_InactiveUser_Returns403WithUserInactiveCode` — PASS; (5) `TestRateLimit_Returns429AfterExceedingLimit` — PASS; (6) `.github/workflows/ci.yml` создан с jobs lint/test/test-integration/build; (7) `npm run build` — 0 ошибок, чат с таймером протестирован вручную; (8) чеклист, api-sprint-4.md и known-limitations обновлены.
 
 ---
 
 ## 16) Демо
 
-- [ ] Backend demo: отправить сообщение с TTL → дождаться expirer → `message_deleted` в WS.
-- [ ] Mobile demo: открыть чат → видеть обратный отсчёт → сообщение исчезает с экрана.
-- [ ] CI demo: показать зелёный GitHub Actions workflow.
-- [ ] Зафиксировать known limitations Sprint 4 (`docs/known-limitations-sprint-4.md`).
+- [x] Backend demo: отправить сообщение с TTL → дождаться expirer → `message_deleted` в WS.
+- [x] Mobile demo: открыть чат → видеть обратный отсчёт → сообщение исчезает с экрана.
+- [x] CI demo: показать зелёный GitHub Actions workflow.
+- [x] Зафиксировать known limitations Sprint 4 (`docs/known-limitations-sprint-4.md`).
 
 ---
 
-**Sprint 4 — IN PROGRESS**
+**Sprint 4 — DONE**
