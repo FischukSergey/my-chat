@@ -119,6 +119,21 @@ services:
     networks:
       - my-chat-net
 
+  # Перезагружает nginx каждые 12 часов после того, как certbot обновил сертификат
+  nginx-reloader:
+    image: docker:cli
+    container_name: my-chat-nginx-reloader-prod
+    <<: [*common-labels, *restart]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: >
+      /bin/sh -c "while :; do
+        sleep 12h;
+        docker exec my-chat-nginx-prod nginx -s reload && echo 'nginx reloaded' || echo 'nginx reload failed';
+      done"
+    depends_on:
+      - nginx
+
 networks:
   my-chat-net:
     driver: bridge

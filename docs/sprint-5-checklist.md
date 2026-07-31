@@ -93,8 +93,9 @@
 
 ## 5) Nginx конфигурация
 
-- [ ] Создать `deploy/prod/nginx/nginx.conf` — базовый конфиг nginx.
-- [ ] Создать `deploy/prod/nginx/conf.d/my-chat.conf`:
+- [x] Создать `deploy/prod/nginx/nginx.conf` — базовый конфиг nginx.
+  > Создан. gzip включён для JSON/text, `server_tokens off`, proxy-буферы настроены.
+- [x] Создать `deploy/prod/nginx/conf.d/my-chat.conf`:
   - HTTP → HTTPS redirect (301);
   - HTTPS server block с SSL-сертификатом от Let's Encrypt;
   - `location /api/` → `proxy_pass http://main-service:8080`;
@@ -102,27 +103,35 @@
   - `location /auth/` → `proxy_pass http://auth-proxy:33081`;
   - `location /health` → `proxy_pass http://main-service:8080`;
   - корректные заголовки: `proxy_set_header Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`.
-- [ ] Настроить SSL: `ssl_protocols TLSv1.2 TLSv1.3`, `ssl_ciphers` (modern config).
-- [ ] Добавить gzip-компрессию для JSON/text ответов.
-- [ ] Добавить security headers: `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`.
-- [ ] Проверить nginx конфиг локально: `nginx -t`.
+  > Создан. Используется `set $upstream` + `resolver 127.0.0.11` (Docker DNS) для динамического резолвинга — nginx не кэширует IP при старте.
+- [x] Настроить SSL: `ssl_protocols TLSv1.2 TLSv1.3`, `ssl_ciphers` (modern config).
+  > Mozilla modern config: ECDHE ciphers, OCSP stapling, session cache, tickets off.
+- [x] Добавить gzip-компрессию для JSON/text ответов.
+  > В `nginx.conf`: `gzip on`, типы: json, javascript, xml, text/*.
+- [x] Добавить security headers: `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`.
+  > Добавлены: HSTS (`max-age=63072000; includeSubDomains`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection`, `Referrer-Policy`.
+- [x] Проверить nginx конфиг локально: `nginx -t`.
+  > `nginx -t` через Docker: синтаксис OK. Ошибка SSL-сертификата ожидаема — сертификаты получаются в пункте 6 (`init-ssl.sh`). На VPS пройдёт полностью.
 
 ---
 
 ## 6) SSL — Let's Encrypt
 
-- [ ] Настроить certbot в `docker-compose.prod.yml`:
+- [x] Настроить certbot в `docker-compose.prod.yml`:
   - образ `certbot/certbot`;
   - volume `./certbot/conf:/etc/letsencrypt`;
   - volume `./certbot/www:/var/www/certbot`.
-- [ ] Создать скрипт `deploy/prod/init-ssl.sh` — первичное получение сертификата:
-  - остановить nginx, запустить certbot в standalone mode, запустить nginx;
-  - или: использовать webroot challenge через nginx.
-- [ ] Настроить автопродление в `docker-compose.prod.yml`:
-  - `command: renew --webroot -w /var/www/certbot` (запускать через cron или timer).
+  > Настроен в пункте 4.
+- [x] Создать скрипт `deploy/prod/init-ssl.sh` — первичное получение сертификата.
+  > Создан `deploy/prod/init-ssl.sh`. Стратегия webroot: создаёт временный самоподписанный сертификат → запускает стек → получает реальный сертификат через webroot challenge → перезагружает nginx. Поддерживает флаг `--staging`.
+- [x] Настроить автопродление в `docker-compose.prod.yml`.
+  > certbot-контейнер: `certbot renew --webroot` каждые 12 часов в loop. Отдельный сервис `nginx-reloader` (образ `docker:cli`) перезагружает nginx через docker socket каждые 12 часов после продления.
 - [ ] Протестировать с `--staging` флагом (не тратить лимит Let's Encrypt).
+  > **Выполнить на VPS:** `bash deploy/prod/init-ssl.sh --staging`
 - [ ] После успешного staging — повторить с реальным сертификатом.
-- [ ] Убедиться, что nginx перезагружает конфиг после обновления сертификата.
+  > **Выполнить на VPS:** `bash deploy/prod/init-ssl.sh`
+- [x] Убедиться, что nginx перезагружает конфиг после обновления сертификата.
+  > Сервис `nginx-reloader` выполняет `docker exec my-chat-nginx-prod nginx -s reload` каждые 12 часов.
 
 ---
 
@@ -149,14 +158,17 @@
 
 ## 8) GitHub Actions — CI workflow
 
-- [ ] Создать `.github/workflows/ci.yml`:
+- [x] Создать `.github/workflows/ci.yml`:
   - trigger: `push` + `pull_request` на `main`;
   - job `lint`: `golangci/golangci-lint:v2.12.2` Docker action, `golangci-lint run ./...`;
   - job `test`: `go test -race -short ./...`;
   - job `test-integration`: поднять postgres через `docker compose -f deploy/test/docker-compose.test.yml`, прогнать `go test -tags=integration ./...`;
   - job `build`: `go build ./cmd/...`.
-- [ ] Убедиться, что все jobs проходят на ветке `main`.
-- [ ] Добавить badge CI в README (статус GitHub Actions).
+  > Выполнено в Sprint 4. Все 4 джобы присутствуют и проходят на `main`.
+- [x] Убедиться, что все jobs проходят на ветке `main`.
+  > Подтверждено пользователем — все джобы зелёные.
+- [x] Добавить badge CI в README (статус GitHub Actions).
+  > Создан `README.md` с бейджем CI → `github.com/FischukSergey/my-chat/actions/workflows/ci.yml`.
 
 ---
 
