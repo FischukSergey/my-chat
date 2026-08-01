@@ -46,7 +46,7 @@ for arg in "$@"; do
 done
 
 CERT_PATH="${SCRIPT_DIR}/certbot/conf/live/${DOMAIN}"
-COMPOSE="docker compose -f ${COMPOSE_FILE} --env-file ${SCRIPT_DIR}/../../.env"
+COMPOSE="docker compose -f ${COMPOSE_FILE}"
 
 echo "==> Рабочая директория: ${SCRIPT_DIR}"
 cd "${SCRIPT_DIR}"

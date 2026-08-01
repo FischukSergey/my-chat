@@ -18,6 +18,7 @@ services:
     image: postgres:15-alpine
     container_name: my-chat-postgres-prod
     <<: [*common-labels, *restart]
+    env_file: ../../.env
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -40,7 +41,7 @@ services:
     container_name: my-chat-main-service-prod
     <<: [*common-labels, *restart, *depends-postgres]
     command: ["-config", "configs/config.main-service.prod.yaml"]
-    env_file: .env
+    env_file: ../../.env
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 15s
@@ -57,7 +58,7 @@ services:
     container_name: my-chat-auth-proxy-prod
     <<: [*common-labels, *restart, *depends-postgres]
     command: ["-config", "configs/config.auth-proxy.prod.yaml"]
-    env_file: .env
+    env_file: ../../.env
     networks:
       - my-chat-net
 
@@ -68,7 +69,7 @@ services:
     container_name: my-chat-notification-worker-prod
     <<: [*common-labels, *restart, *depends-postgres]
     command: ["-config", "configs/config.notification-worker.prod.yaml"]
-    env_file: .env
+    env_file: ../../.env
     networks:
       - my-chat-net
 
@@ -79,7 +80,7 @@ services:
     container_name: my-chat-message-expirer-prod
     <<: [*common-labels, *restart, *depends-postgres]
     command: ["-config", "configs/config.message-expirer.prod.yaml"]
-    env_file: .env
+    env_file: ../../.env
     networks:
       - my-chat-net
 
