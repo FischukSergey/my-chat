@@ -279,11 +279,12 @@
 
 ## 14) Улучшения мобильного клиента (backlog из Sprint 4)
 
-- [ ] **Page Visibility API**: вызывать `markRead` только если диалог видим (`document.hidden === false`).
-  - При открытии диалога: проверять `document.hidden` перед вызовом `markRead`.
-  - При получении `message_new` в открытом диалоге: аналогично.
-  - Добавить обработчик `document.addEventListener("visibilitychange", ...)`: при возврате фокуса дочитывать непрочитанные сообщения текущего диалога.
-  - Актуально для браузера и PWA: сообщения не считаются прочитанными, пока вкладка свёрнута или скрыта.
+- [x] **Page Visibility API**: вызывать `markRead` только если диалог видим (`document.hidden === false`).
+  - `tryMarkRead(id)` — вызывает `markRead` немедленно если вкладка видима, иначе кладёт ID в `pendingMarkRead` Set.
+  - `flushPendingMarkRead()` — дренирует Set и отправляет `markRead` для всех накопленных ID.
+  - `visibilitychange` обработчик в `init()`: вызывает `flushPendingMarkRead()` при возврате фокуса если диалог открыт.
+  - `handleBackFromChat()`: очищает `pendingMarkRead` (ID уже не актуальны).
+  - Оба вызова `markRead` в `handleWSMessage` и `loadChatHistory` заменены на `tryMarkRead()`.
 
 ---
 
