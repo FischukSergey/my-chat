@@ -1,0 +1,27 @@
+# Git
+.git
+.gitignore
+
+# CI / docs
+.github
+docs
+mobile
+README.md
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# Deploy artefacts — особенно certbot/conf имеет root-права на VPS
+deploy/prod/certbot/
+deploy/prod/nginx/ssl/
+
+# IDE
+.vscode
+.cursor
+*.swp
+*.swo
+
+# macOS
+.DS_Store
