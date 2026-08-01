@@ -54,7 +54,7 @@ func (m MetricsServerConfig) IsConfigured() bool {
 
 // DatabaseConfig хранит параметры подключения к PostgreSQL.
 type DatabaseConfig struct {
-	DSN         string `yaml:"dsn"`
+	DSN         string `yaml:"dsn" env:"DATABASE_DSN"`
 	AutoMigrate bool   `yaml:"auto_migrate"`
 }
 
@@ -66,7 +66,7 @@ func (d DatabaseConfig) IsConfigured() bool {
 // JWTConfig хранит параметры для подписи и валидации JWT.
 // Поля необязательны глобально — обязательность проверяется вручную через IsConfigured() в каждом App.New.
 type JWTConfig struct {
-	Secret          string `yaml:"secret"`
+	Secret          string `yaml:"secret" env:"JWT_SECRET"`
 	AccessTokenTTL  int    `yaml:"access_token_ttl_seconds" validate:"omitempty,min=60"`
 	RefreshTokenTTL int    `yaml:"refresh_token_ttl_seconds" validate:"omitempty,min=60"`
 }
