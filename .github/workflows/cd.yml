@@ -34,6 +34,9 @@ jobs:
             echo "==> docker compose up"
             docker compose -f deploy/prod/docker-compose.prod.yml --env-file .env up -d --remove-orphans
 
+            echo "==> nginx reload (конфиг монтируется как volume, нужен явный reload)"
+            docker exec my-chat-nginx-prod nginx -s reload
+
             echo "==> docker image prune"
             docker image prune -f
 
