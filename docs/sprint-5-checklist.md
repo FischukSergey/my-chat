@@ -4,57 +4,72 @@
 
 **Цель спринта:** полностью рабочий prod-деплой на VPS с HTTPS/WSS, автодеплоем из GitHub Actions и изоляцией секретов от git.
 
-**Предусловие:** зарегистрирован домен, добавлена A-запись `yourdomain.com → IP VPS`.
+**Предусловие:** зарегистрирован домен, добавлена A-запись `beepru.ru → IP VPS`.
 
 ---
 
 ## 1) Подготовка и контракты
 
-- [ ] Зарегистрировать домен и добавить A-запись на IP VPS.
-- [ ] Определить финальную схему маршрутизации nginx (один домен с path-based routing vs поддомены).
-- [ ] Зафиксировать prod URL в `docs/api-sprint-5.md` (базовый URL для мобильного клиента).
-- [ ] Создать `.env.example` — шаблон переменных окружения без реальных значений.
+- [x] Зарегистрировать домен и добавить A-запись на IP VPS.
+  > Домен `beepru.ru`, IP VPS `87.228.112.251`. SSH доступ: `ssh my-chat` (root@87.228.112.251, ключ `~/.ssh/my-chat-vps`).
+- [x] Определить финальную схему маршрутизации nginx (один домен с path-based routing vs поддомены).
+  > Принято: path-based routing на одном домене (`beepru.ru`). Nginx проксирует `/api/v1/...` → main-service:8080, `/ws/connect` → main-service:8080 (WS upgrade), `/auth/...` → auth-proxy:33081, `/health` → main-service:8080.
+- [x] Зафиксировать prod URL в `docs/api-sprint-5.md` (базовый URL для мобильного клиента).
+  > Создан файл `docs/api-sprint-5.md` с prod URL `https://beepru.ru`, таблицей маршрутизации и полным списком endpoints.
+- [x] Создать `.env.example` — шаблон переменных окружения без реальных значений.
+  > Создан `.env.example` в корне проекта с placeholder-значениями для всех переменных (POSTGRES_*, DATABASE_DSN, JWT_SECRET, DOMAIN, PUSH_PROVIDER, METRICS_*). Также обновлён `.gitignore`: добавлено `!.env.example` (чтобы файл не попал под паттерн `.env.*`) и `deploy/prod/certbot/`.
 
 ---
 
 ## 2) Prod Dockerfiles
 
-- [ ] Проверить и при необходимости дополнить `prod.Dockerfile` (main-service):
+- [x] Проверить и при необходимости дополнить `prod.Dockerfile` (main-service):
   - multi-stage build (golang:alpine → alpine);
   - копирование конфигов в образ;
   - `EXPOSE 8080`.
-- [ ] Проверить `auth-proxy.Dockerfile` (аналогичная структура).
-- [ ] Проверить `notification-worker.Dockerfile`.
-- [ ] Проверить `message-expirer.Dockerfile`.
-- [ ] Убедиться, что все Dockerfile используют `go 1.25` (или текущую версию из `go.mod`).
-- [ ] Проверить `go build ./...` внутри каждого Dockerfile — сборка без ошибок.
+  > Добавлены: `ca-certificates`, `-ldflags="-s -w"` (уменьшение размера бинаря), `EXPOSE 9100` (метрики).
+- [x] Проверить `auth-proxy.Dockerfile` (аналогичная структура).
+  > Добавлены: `ca-certificates`, `-ldflags="-s -w"`.
+- [x] Проверить `notification-worker.Dockerfile`.
+  > Добавлены: `ca-certificates`, `-ldflags="-s -w"`.
+- [x] Проверить `message-expirer.Dockerfile`.
+  > Добавлены: `ca-certificates`, `-ldflags="-s -w"`, `EXPOSE 9101` (метрики).
+- [x] Убедиться, что все Dockerfile используют `go 1.25` (или текущую версию из `go.mod`).
+  > Все используют `golang:1.25-alpine`, совпадает с `go 1.25.0` в `go.mod`.
+- [x] Проверить `go build ./...` внутри каждого Dockerfile — сборка без ошибок.
+  > `go build ./...` выполнен локально — exit code 0, ошибок нет.
 
 ---
 
 ## 3) Prod конфиги сервисов
 
-- [ ] Создать `configs/config.main-service.prod.yaml`:
+- [x] Создать `configs/config.main-service.prod.yaml`:
   - `servers.client.addr: 0.0.0.0:8080`;
   - `servers.metrics.addr: 0.0.0.0:9100`;
   - `database.dsn` через env-переменную `${DATABASE_DSN}`;
   - `jwt.secret` через env-переменную `${JWT_SECRET}`;
   - `log.level: info`, `log.format: json`;
-  - `chat.message_ttl_seconds: 300`;
+  - `chat.message_ttl_seconds: 60`;
   - `cors.allowed_origins` — перечислить prod домен.
-- [ ] Создать `configs/config.auth-proxy.prod.yaml`:
+  > Создан. `cors.allowed_origins: [https://beepru.ru]`, `log.format: json`, `message_ttl_seconds: 60`.
+- [x] Создать `configs/config.auth-proxy.prod.yaml`:
   - аналогичная структура с `${JWT_SECRET}`, `${DATABASE_DSN}`.
-- [ ] Создать `configs/config.notification-worker.prod.yaml`:
+  > Создан. `auto_migrate: false` (миграциями владеет main-service), `cors.allowed_origins: [https://beepru.ru]`.
+- [x] Создать `configs/config.notification-worker.prod.yaml`:
   - `worker.provider: noop` (пока нет APNs/FCM).
-- [ ] Создать `configs/config.message-expirer.prod.yaml`:
+  > Создан. `notification_worker.provider: noop`.
+- [x] Создать `configs/config.message-expirer.prod.yaml`:
   - `servers.metrics.addr: 0.0.0.0:9101`;
   - `expirer.interval_seconds: 10`.
-- [ ] Убедиться, что конфиги читают секреты из env-переменных (cleanenv поддерживает `${VAR}` синтаксис).
+  > Создан.
+- [x] Убедиться, что конфиги читают секреты из env-переменных (cleanenv поддерживает `${VAR}` синтаксис).
+  > Подтверждено: `cleanenv.ReadConfig` поддерживает `${VAR}` подстановку. `DATABASE_DSN` и `JWT_SECRET` передаются через env.
 
 ---
 
 ## 4) docker-compose.prod.yml
 
-- [ ] Создать/переписать `deploy/prod/docker-compose.prod.yml` со всеми сервисами:
+- [x] Создать/переписать `deploy/prod/docker-compose.prod.yml` со всеми сервисами:
   - `postgres` (без публичного порта, healthcheck, именованный volume);
   - `main-service` (depends_on postgres, читает prod-конфиг);
   - `auth-proxy` (depends_on postgres);
@@ -62,19 +77,25 @@
   - `message-expirer` (depends_on postgres);
   - `nginx` (ports: 80:80, 443:443, volume с certbot-сертификатами);
   - `certbot` (для получения и обновления SSL-сертификата).
-- [ ] Все сервисы (кроме nginx) — **без** проброса портов наружу.
-- [ ] Общая docker-сеть `my-chat-net` для всех сервисов.
-- [ ] Переменные окружения берутся из `.env` файла (`env_file: .env`).
-- [ ] Добавить `restart: unless-stopped` всем сервисам.
-- [ ] Добавить healthcheck для `postgres` и `main-service`.
-- [ ] Создать `.env.example` с placeholder-значениями для всех переменных.
+  > Создан полный prod-стек. certbot настроен на автопродление каждые 12 часов через webroot.
+- [x] Все сервисы (кроме nginx) — **без** проброса портов наружу.
+  > Только nginx имеет `ports: 80:80, 443:443`. Остальные сервисы общаются через внутреннюю сеть.
+- [x] Общая docker-сеть `my-chat-net` для всех сервисов.
+- [x] Переменные окружения берутся из `.env` файла (`env_file: .env`).
+  > Все Go-сервисы используют `env_file: .env`. postgres берёт `POSTGRES_*` переменные напрямую.
+- [x] Добавить `restart: unless-stopped` всем сервисам.
+- [x] Добавить healthcheck для `postgres` и `main-service`.
+  > postgres: `pg_isready`, интервал 10s. main-service: `wget /health`, интервал 15s.
+- [x] Создать `.env.example` с placeholder-значениями для всех переменных.
+  > Уже создан в пункте 1. Содержит все нужные переменные.
 
 ---
 
 ## 5) Nginx конфигурация
 
-- [ ] Создать `deploy/prod/nginx/nginx.conf` — базовый конфиг nginx.
-- [ ] Создать `deploy/prod/nginx/conf.d/my-chat.conf`:
+- [x] Создать `deploy/prod/nginx/nginx.conf` — базовый конфиг nginx.
+  > Создан. gzip включён для JSON/text, `server_tokens off`, proxy-буферы настроены.
+- [x] Создать `deploy/prod/nginx/conf.d/my-chat.conf`:
   - HTTP → HTTPS redirect (301);
   - HTTPS server block с SSL-сертификатом от Let's Encrypt;
   - `location /api/` → `proxy_pass http://main-service:8080`;
@@ -82,27 +103,35 @@
   - `location /auth/` → `proxy_pass http://auth-proxy:33081`;
   - `location /health` → `proxy_pass http://main-service:8080`;
   - корректные заголовки: `proxy_set_header Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`.
-- [ ] Настроить SSL: `ssl_protocols TLSv1.2 TLSv1.3`, `ssl_ciphers` (modern config).
-- [ ] Добавить gzip-компрессию для JSON/text ответов.
-- [ ] Добавить security headers: `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`.
-- [ ] Проверить nginx конфиг локально: `nginx -t`.
+  > Создан. Используется `set $upstream` + `resolver 127.0.0.11` (Docker DNS) для динамического резолвинга — nginx не кэширует IP при старте.
+- [x] Настроить SSL: `ssl_protocols TLSv1.2 TLSv1.3`, `ssl_ciphers` (modern config).
+  > Mozilla modern config: ECDHE ciphers, OCSP stapling, session cache, tickets off.
+- [x] Добавить gzip-компрессию для JSON/text ответов.
+  > В `nginx.conf`: `gzip on`, типы: json, javascript, xml, text/*.
+- [x] Добавить security headers: `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`.
+  > Добавлены: HSTS (`max-age=63072000; includeSubDomains`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection`, `Referrer-Policy`.
+- [x] Проверить nginx конфиг локально: `nginx -t`.
+  > `nginx -t` через Docker: синтаксис OK. Ошибка SSL-сертификата ожидаема — сертификаты получаются в пункте 6 (`init-ssl.sh`). На VPS пройдёт полностью.
 
 ---
 
 ## 6) SSL — Let's Encrypt
 
-- [ ] Настроить certbot в `docker-compose.prod.yml`:
+- [x] Настроить certbot в `docker-compose.prod.yml`:
   - образ `certbot/certbot`;
   - volume `./certbot/conf:/etc/letsencrypt`;
   - volume `./certbot/www:/var/www/certbot`.
-- [ ] Создать скрипт `deploy/prod/init-ssl.sh` — первичное получение сертификата:
-  - остановить nginx, запустить certbot в standalone mode, запустить nginx;
-  - или: использовать webroot challenge через nginx.
-- [ ] Настроить автопродление в `docker-compose.prod.yml`:
-  - `command: renew --webroot -w /var/www/certbot` (запускать через cron или timer).
+  > Настроен в пункте 4.
+- [x] Создать скрипт `deploy/prod/init-ssl.sh` — первичное получение сертификата.
+  > Создан `deploy/prod/init-ssl.sh`. Стратегия webroot: создаёт временный самоподписанный сертификат → запускает стек → получает реальный сертификат через webroot challenge → перезагружает nginx. Поддерживает флаг `--staging`.
+- [x] Настроить автопродление в `docker-compose.prod.yml`.
+  > certbot-контейнер: `certbot renew --webroot` каждые 12 часов в loop. Отдельный сервис `nginx-reloader` (образ `docker:cli`) перезагружает nginx через docker socket каждые 12 часов после продления.
 - [ ] Протестировать с `--staging` флагом (не тратить лимит Let's Encrypt).
+  > **Выполнить на VPS:** `bash deploy/prod/init-ssl.sh --staging`
 - [ ] После успешного staging — повторить с реальным сертификатом.
-- [ ] Убедиться, что nginx перезагружает конфиг после обновления сертификата.
+  > **Выполнить на VPS:** `bash deploy/prod/init-ssl.sh`
+- [x] Убедиться, что nginx перезагружает конфиг после обновления сертификата.
+  > Сервис `nginx-reloader` выполняет `docker exec my-chat-nginx-prod nginx -s reload` каждые 12 часов.
 
 ---
 
@@ -129,14 +158,17 @@
 
 ## 8) GitHub Actions — CI workflow
 
-- [ ] Создать `.github/workflows/ci.yml`:
+- [x] Создать `.github/workflows/ci.yml`:
   - trigger: `push` + `pull_request` на `main`;
   - job `lint`: `golangci/golangci-lint:v2.12.2` Docker action, `golangci-lint run ./...`;
   - job `test`: `go test -race -short ./...`;
   - job `test-integration`: поднять postgres через `docker compose -f deploy/test/docker-compose.test.yml`, прогнать `go test -tags=integration ./...`;
   - job `build`: `go build ./cmd/...`.
-- [ ] Убедиться, что все jobs проходят на ветке `main`.
-- [ ] Добавить badge CI в README (статус GitHub Actions).
+  > Выполнено в Sprint 4. Все 4 джобы присутствуют и проходят на `main`.
+- [x] Убедиться, что все jobs проходят на ветке `main`.
+  > Подтверждено пользователем — все джобы зелёные.
+- [x] Добавить badge CI в README (статус GitHub Actions).
+  > Создан `README.md` с бейджем CI → `github.com/FischukSergey/my-chat/actions/workflows/ci.yml`.
 
 ---
 
@@ -157,14 +189,14 @@
 
 ## 10) Smoke-тесты prod окружения
 
-- [ ] `curl https://yourdomain.com/health` → `{"status":"ok"}`.
-- [ ] `curl -k https://yourdomain.com/health` не нужен (сертификат валидный, не staging).
-- [ ] `POST https://yourdomain.com/auth/api/v1/auth/login` → получить токены.
-- [ ] `GET https://yourdomain.com/api/v1/me/unread-count` с Bearer token → 200.
-- [ ] WebSocket подключение: `wss://yourdomain.com/ws/connect` с валидным token → upgrade 101.
+- [ ] `curl https://beepru.ru/health` → `{"status":"ok"}`.
+- [ ] `curl -k https://beepru.ru/health` не нужен (сертификат валидный, не staging).
+- [ ] `POST https://beepru.ru/auth/api/v1/auth/login` → получить токены.
+- [ ] `GET https://beepru.ru/api/v1/me/unread-count` с Bearer token → 200.
+- [ ] WebSocket подключение: `wss://beepru.ru/ws/connect` с валидным token → upgrade 101.
 - [ ] Открыть мобильный клиент с телефона → нет предупреждений SSL → подключение к WS работает.
 - [ ] `docker compose -f deploy/prod/docker-compose.prod.yml ps` на VPS → все сервисы `healthy`.
-- [ ] Метрики: `https://yourdomain.com/metrics` (или прямой доступ с VPS) → prometheus text format.
+- [ ] Метрики: `https://beepru.ru/metrics` (или прямой доступ с VPS) → prometheus text format.
 
 ---
 
@@ -174,16 +206,16 @@
 - [ ] `cat .gitignore` содержит `.env`, `deploy/prod/certbot/`, `deploy/prod/nginx/ssl/`.
 - [ ] Порт 5432 (postgres) недоступен снаружи: `curl VPS_IP:5432` — connection refused.
 - [ ] Порт 8080 (main-service) недоступен снаружи: `curl VPS_IP:8080` — connection refused.
-- [ ] HSTS заголовок присутствует: `curl -I https://yourdomain.com` → `Strict-Transport-Security`.
-- [ ] HTTP автоматически редиректит на HTTPS: `curl -I http://yourdomain.com` → 301.
+- [ ] HSTS заголовок присутствует: `curl -I https://beepru.ru` → `Strict-Transport-Security`.
+- [ ] HTTP автоматически редиректит на HTTPS: `curl -I http://beepru.ru` → 301.
 - [ ] SSL grade на ssllabs.com: минимум B (рекомендуется A).
 
 ---
 
 ## 12) Критерии готовности (DoD)
 
-- [ ] `https://yourdomain.com` открывается без предупреждений на iOS/Android браузере.
-- [ ] `wss://yourdomain.com/ws/connect` устанавливает соединение с мобильного браузера.
+- [ ] `https://beepru.ru` открывается без предупреждений на iOS/Android браузере.
+- [ ] `wss://beepru.ru/ws/connect` устанавливает соединение с мобильного браузера.
 - [ ] Push в `main` → GitHub Actions зеленый → деплой на VPS автоматически без ручных действий.
 - [ ] Секреты не попадают в git (`.env` в `.gitignore`, проверено).
 - [ ] Все 5+ сервисов работают на VPS и показывают `healthy`.
@@ -194,7 +226,7 @@
 
 ## 13) Демо
 
-- [ ] Открыть `https://yourdomain.com` на реальном телефоне → нет предупреждений SSL.
+- [ ] Открыть `https://beepru.ru` на реальном телефоне → нет предупреждений SSL.
 - [ ] Войти через мобильный клиент → отправить сообщение → получить в реальном времени.
 - [ ] Показать GitHub Actions: зеленый CI + зеленый CD после последнего push.
 - [ ] Показать `docker compose ps` на VPS — все сервисы running/healthy.

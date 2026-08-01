@@ -26,6 +26,10 @@
 # Local environment
 .env
 .env.*
+!.env.example
+
+# Prod certbot (сертификаты и challenge-файлы не коммитятся)
+deploy/prod/certbot/
 
 # Dependency caches
 /vendor/

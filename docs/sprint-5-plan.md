@@ -47,16 +47,16 @@ Internet
 ## 4) Маршрутизация nginx
 
 ```
-https://yourdomain.com/api/v1/...    → main-service:8080
-https://yourdomain.com/ws/connect    → main-service:8080  (WebSocket upgrade)
-https://yourdomain.com/auth/...      → auth-proxy:33081
-https://yourdomain.com/health        → main-service:8080
+https://beepru.ru/api/v1/...    → main-service:8080
+https://beepru.ru/ws/connect    → main-service:8080  (WebSocket upgrade)
+https://beepru.ru/auth/...      → auth-proxy:33081
+https://beepru.ru/health        → main-service:8080
 ```
 
 Либо вариант с поддоменами:
 ```
-https://api.yourdomain.com/...       → main-service:8080
-https://auth.yourdomain.com/...      → auth-proxy:33081
+https://api.beepru.ru/...       → main-service:8080
+https://auth.beepru.ru/...      → auth-proxy:33081
 ```
 
 Выбор фиксируется при реализации чеклиста (зависит от структуры mobile-клиента).
@@ -102,7 +102,7 @@ POSTGRES_PASSWORD=...
 JWT_SECRET=...
 
 # Domain
-DOMAIN=yourdomain.com
+DOMAIN=beepru.ru
 
 # Notification worker
 PUSH_PROVIDER=noop   # пока нет реальных APNs/FCM credentials
@@ -152,13 +152,13 @@ CD запускается только если CI прошел (зависим�
 
 Спринт считается завершенным, если:
 
-- `https://yourdomain.com` открывается без предупреждений SSL;
-- `wss://yourdomain.com/ws/connect` устанавливает соединение с мобильного браузера;
-- `POST https://yourdomain.com/auth/api/v1/auth/login` возвращает токены;
+- `https://beepru.ru` открывается без предупреждений SSL;
+- `wss://beepru.ru/ws/connect` устанавливает соединение с мобильного браузера;
+- `POST https://beepru.ru/auth/api/v1/auth/login` возвращает токены;
 - Push в `main` → GitHub Actions → автодеплой на VPS без ручных действий;
 - `.env` файл не попадает в git (проверено через `git status`);
 - `docker compose ps` на VPS показывает все сервисы `healthy`;
-- Метрики доступны по `https://yourdomain.com/metrics` (или отдельный поддомен) с basic auth.
+- Метрики доступны по `https://beepru.ru/metrics` (или отдельный поддомен) с basic auth.
 
 ## 10) Риски и меры
 

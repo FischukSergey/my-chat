@@ -1,0 +1,24 @@
+global:
+  env: prod
+
+log:
+  level: info
+  format: json
+  service_name: auth-proxy
+
+servers:
+  client:
+    addr: 0.0.0.0:33081
+
+database:
+  dsn: ${DATABASE_DSN}
+  auto_migrate: false
+
+jwt:
+  secret: ${JWT_SECRET}
+  access_token_ttl_seconds: 900
+  refresh_token_ttl_seconds: 604800
+
+cors:
+  allowed_origins:
+    - https://beepru.ru
