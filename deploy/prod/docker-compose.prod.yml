@@ -59,6 +59,13 @@ services:
     <<: [*common-labels, *restart, *depends-postgres]
     command: ["-config", "configs/config.auth-proxy.prod.yaml"]
     env_file: ../../.env
+    # Проверяем что HTTP-сервер отвечает: wget вернёт 8 (4xx/5xx) — не 4 (сеть недоступна)
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null --timeout=3 http://localhost:33081/ 2>&1; [ $? -ne 4 ]"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     networks:
       - my-chat-net
 
@@ -70,6 +77,13 @@ services:
     <<: [*common-labels, *restart, *depends-postgres]
     command: ["-config", "configs/config.notification-worker.prod.yaml"]
     env_file: ../../.env
+    # Pure worker — нет HTTP-сервера, проверяем что процесс жив
+    healthcheck:
+      test: ["CMD", "test", "-f", "/proc/1/status"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     networks:
       - my-chat-net
 
@@ -81,6 +95,12 @@ services:
     <<: [*common-labels, *restart, *depends-postgres]
     command: ["-config", "configs/config.message-expirer.prod.yaml"]
     env_file: ../../.env
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:9101/metrics 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     networks:
       - my-chat-net
 
