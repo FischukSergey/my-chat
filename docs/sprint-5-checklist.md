@@ -211,12 +211,13 @@
 - [x] Security headers: `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options` — все присутствуют.
 - [x] `GET /api/v1/me/unread-count` без токена → HTTP 401 `{"error":{"code":"unauthenticated",...}}` (main-service отвечает корректно).
 - [x] `GET /ws/connect` без токена → HTTP 401 (WebSocket endpoint доступен и возвращает 401 без upgrade).
-- [ ] `POST https://beepru.ru/auth/api/v1/auth/login` → получить токены.
-  > **BUG FOUND & FIXED:** nginx проксировал `/auth/api/v1/auth/login` → auth-proxy без снятия префикса `/auth`, а auth-proxy ожидает `/api/v1/auth/login`. Добавлен `rewrite ^/auth/(.*) /$1 break;` в nginx conf (commit `916fcaa`). Нужно задеплоить на VPS: `git pull && docker exec my-chat-nginx-prod nginx -s reload`.
-- [ ] `GET https://beepru.ru/api/v1/me/unread-count` с Bearer token → 200.
-  > Требует рабочего auth (пункт выше).
-- [ ] WebSocket подключение: `wss://beepru.ru/ws/connect` с валидным token → upgrade 101.
-  > Требует рабочего auth (пункт выше).
+- [x] `POST https://beepru.ru/auth/api/v1/auth/login` → получить токены.
+  > HTTP 200, access_token + refresh_token получены, expires_in: 900.
+  > Баги найдены и исправлены: (1) nginx не срезал `/auth`-префикс — добавлен `rewrite`; (2) `set $upstream_auth` стоял ПОСЛЕ `rewrite+break` и не выполнялся — переставлен выше.
+- [x] `GET https://beepru.ru/api/v1/me/unread-count` с Bearer token → 200.
+  > HTTP 200, тело `{"unread_count":0}`.
+- [x] WebSocket подключение: `wss://beepru.ru/ws/connect` с валидным token → upgrade 101.
+  > curl завис в WS-сессии (101 Switching Protocols) — соединение установлено успешно.
 - [ ] Открыть мобильный клиент с телефона → нет предупреждений SSL → подключение к WS работает.
 - [ ] `docker compose -f deploy/prod/docker-compose.prod.yml ps` на VPS → все сервисы `healthy`.
 - [ ] Метрики: `https://beepru.ru/metrics` (или прямой доступ с VPS) → prometheus text format.
