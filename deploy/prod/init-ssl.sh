@@ -2,16 +2,11 @@
 # =============================================================================
 # init-ssl.sh — первичное получение SSL-сертификата от Let's Encrypt
 #
-# Решает проблему «курица и яйцо»:
-#   nginx не стартует без сертификата,
-#   certbot не может пройти webroot challenge без nginx.
-#
-# Стратегия:
-#   1. Создать временный самоподписанный сертификат → nginx стартует
-#   2. Запустить весь стек (кроме certbot-loop)
-#   3. Получить реальный сертификат через webroot challenge
-#   4. Перезагрузить nginx с реальным сертификатом
-#   5. Запустить certbot-loop для автопродления
+# Стратегия (standalone):
+#   1. Поднять postgres и Go-сервисы (без nginx — порт 80 свободен)
+#   2. Certbot в standalone-режиме сам слушает порт 80 и проходит challenge
+#   3. Запустить nginx с реальным сертификатом
+#   4. Запустить certbot-loop для автопродления
 #
 # Использование:
 #   cd /opt/my-chat/deploy/prod
@@ -45,35 +40,17 @@ for arg in "$@"; do
   esac
 done
 
-CERT_PATH="${SCRIPT_DIR}/certbot/conf/live/${DOMAIN}"
 COMPOSE="docker compose -f ${COMPOSE_FILE} --env-file ${REPO_ROOT}/.env"
 
 echo "==> Рабочая директория: ${SCRIPT_DIR}"
 cd "${SCRIPT_DIR}"
 
-# ── Шаг 1: Временный самоподписанный сертификат ──────────────────────────────
-if [ ! -f "${CERT_PATH}/fullchain.pem" ]; then
-  echo "==> Шаг 1: создаём временный самоподписанный сертификат..."
+# ── Шаг 1: Убедиться что nginx остановлен (нужен свободный порт 80) ──────────
+echo "==> Шаг 1: останавливаем nginx (освобождаем порт 80 для certbot)..."
+${COMPOSE} stop nginx 2>/dev/null || true
 
-  mkdir -p "${CERT_PATH}"
-
-  openssl req -x509 -nodes -newkey rsa:2048 \
-    -keyout "${CERT_PATH}/privkey.pem" \
-    -out    "${CERT_PATH}/fullchain.pem" \
-    -days   1 \
-    -subj   "/CN=${DOMAIN}" \
-    2>/dev/null
-
-  # chain.pem нужен для ssl_trusted_certificate
-  cp "${CERT_PATH}/fullchain.pem" "${CERT_PATH}/chain.pem"
-
-  echo "    Временный сертификат создан."
-else
-  echo "==> Шаг 1: сертификат уже существует, пропускаем создание временного."
-fi
-
-# ── Шаг 2: Поднять весь стек (certbot-loop не стартует — зависит от nginx) ──
-echo "==> Шаг 2: запускаем стек (postgres, сервисы, nginx)..."
+# ── Шаг 2: Поднять postgres и Go-сервисы ─────────────────────────────────────
+echo "==> Шаг 2: запускаем postgres и Go-сервисы..."
 ${COMPOSE} up -d postgres
 echo "    Ждём готовности postgres..."
 ${COMPOSE} exec postgres sh -c "until pg_isready -U \${POSTGRES_USER} -d \${POSTGRES_DB}; do sleep 1; done"
@@ -90,42 +67,38 @@ for i in $(seq 1 30); do
   sleep 3
 done
 
-${COMPOSE} up -d nginx
-sleep 2
-echo "    nginx запущен."
+# ── Шаг 3: Получить сертификат через certbot standalone ──────────────────────
+echo "==> Шаг 3: получаем сертификат от Let's Encrypt${STAGING:+ (staging)} через standalone..."
 
-# ── Шаг 3: Получить реальный сертификат через webroot ────────────────────────
-echo "==> Шаг 3: получаем сертификат от Let's Encrypt${STAGING:+ (staging)}..."
-
+mkdir -p "${SCRIPT_DIR}/certbot/conf"
 mkdir -p "${SCRIPT_DIR}/certbot/www"
 
 docker run --rm \
   -v "${SCRIPT_DIR}/certbot/conf:/etc/letsencrypt" \
   -v "${SCRIPT_DIR}/certbot/www:/var/www/certbot" \
-  --network my-chat-prod_my-chat-net \
+  -p 80:80 \
   certbot/certbot:latest certonly \
-    --webroot \
-    --webroot-path /var/www/certbot \
+    --standalone \
     --domain "${DOMAIN}" \
     ${CERTBOT_FLAGS} \
-    ${STAGING} \
-    --force-renewal
+    ${STAGING}
 
 echo "    Сертификат получен."
 
-# ── Шаг 4: Перезагрузить nginx с реальным сертификатом ───────────────────────
-echo "==> Шаг 4: перезагружаем nginx с реальным сертификатом..."
-${COMPOSE} exec nginx nginx -s reload
-echo "    nginx перезагружен."
+# ── Шаг 4: Запустить nginx с реальным сертификатом ───────────────────────────
+echo "==> Шаг 4: запускаем nginx с реальным сертификатом..."
+${COMPOSE} up -d nginx
+sleep 3
+echo "    nginx запущен."
 
-# ── Шаг 5: Запустить certbot-loop для автопродления ──────────────────────────
-echo "==> Шаг 5: запускаем certbot-loop для автопродления..."
-${COMPOSE} up -d certbot
-echo "    certbot-loop запущен."
+# ── Шаг 5: Запустить certbot-loop и nginx-reloader ───────────────────────────
+echo "==> Шаг 5: запускаем certbot-loop и nginx-reloader..."
+${COMPOSE} up -d certbot nginx-reloader
+echo "    Автопродление настроено."
 
 echo ""
 echo "✅  Готово! Проверьте:"
-echo "    curl https://${DOMAIN}/health"
+echo "    curl -k https://${DOMAIN}/health"
 echo ""
 if [ -n "${STAGING}" ]; then
   echo "⚠️  Staging сертификат. Для получения боевого сертификата:"
