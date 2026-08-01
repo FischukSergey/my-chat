@@ -226,13 +226,20 @@
 
 ## 11) Безопасность и финальные проверки
 
-- [ ] `git log --all -- '*.env'` → `.env` файла нет в истории git.
-- [ ] `cat .gitignore` содержит `.env`, `deploy/prod/certbot/`, `deploy/prod/nginx/ssl/`.
-- [ ] Порт 5432 (postgres) недоступен снаружи: `curl VPS_IP:5432` — connection refused.
-- [ ] Порт 8080 (main-service) недоступен снаружи: `curl VPS_IP:8080` — connection refused.
-- [ ] HSTS заголовок присутствует: `curl -I https://beepru.ru` → `Strict-Transport-Security`.
-- [ ] HTTP автоматически редиректит на HTTPS: `curl -I http://beepru.ru` → 301.
+- [x] `git log --all -- '*.env'` → `.env` файла нет в истории git.
+  > `git log` вернул пустой вывод — файл `.env` никогда не попадал в историю.
+- [x] `cat .gitignore` содержит `.env`, `deploy/prod/certbot/`, `deploy/prod/nginx/ssl/`.
+  > Подтверждено: `.env`, `.env.*`, `deploy/prod/certbot/` присутствуют в `.gitignore`.
+- [x] Порт 5432 (postgres) недоступен снаружи.
+  > `docker ps` показывает `5432/tcp` без `0.0.0.0:` — порт только внутри Docker-сети, снаружи не опубликован.
+- [x] Порт 8080 (main-service) недоступен снаружи.
+  > `docker ps` показывает `8080/tcp` без `0.0.0.0:` — аналогично, только внутри Docker-сети.
+- [x] HSTS заголовок присутствует: `curl -I https://beepru.ru` → `Strict-Transport-Security`.
+  > `strict-transport-security: max-age=63072000; includeSubDomains` — присутствует.
+- [x] HTTP автоматически редиректит на HTTPS: `curl -I http://beepru.ru` → 301.
+  > HTTP/1.1 301 Moved Permanently, Location: https://beepru.ru/health — редирект работает.
 - [ ] SSL grade на ssllabs.com: минимум B (рекомендуется A).
+  > Проверить вручную: https://www.ssllabs.com/ssltest/analyze.html?d=beepru.ru
 
 ---
 
