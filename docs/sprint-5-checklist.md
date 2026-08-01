@@ -126,10 +126,10 @@
   > Создан `deploy/prod/init-ssl.sh`. Стратегия webroot: создаёт временный самоподписанный сертификат → запускает стек → получает реальный сертификат через webroot challenge → перезагружает nginx. Поддерживает флаг `--staging`.
 - [x] Настроить автопродление в `docker-compose.prod.yml`.
   > certbot-контейнер: `certbot renew --webroot` каждые 12 часов в loop. Отдельный сервис `nginx-reloader` (образ `docker:cli`) перезагружает nginx через docker socket каждые 12 часов после продления.
-- [ ] Протестировать с `--staging` флагом (не тратить лимит Let's Encrypt).
-  > **Выполнить на VPS:** `bash deploy/prod/init-ssl.sh --staging`
-- [ ] После успешного staging — повторить с реальным сертификатом.
-  > **Выполнить на VPS:** `bash deploy/prod/init-ssl.sh`
+- [x] Протестировать с `--staging` флагом (не тратить лимит Let's Encrypt).
+  > Выполнено. `curl -k https://beepru.ru/health` → `{"status":"ok"}`.
+- [x] После успешного staging — повторить с реальным сертификатом.
+  > Выполнено. `curl https://beepru.ru/health` → `{"status":"ok"}` без `-k`. Сертификат доверенный, истекает 2026-10-30.
 - [x] Убедиться, что nginx перезагружает конфиг после обновления сертификата.
   > Сервис `nginx-reloader` выполняет `docker exec my-chat-nginx-prod nginx -s reload` каждые 12 часов.
 
@@ -195,8 +195,8 @@
     - `docker compose -f deploy/prod/docker-compose.prod.yml up -d --remove-orphans`;
     - `docker image prune -f` (очистить старые образы).
   > Создан. Trigger: `workflow_run` на CI (`completed` + `conclusion == success`). SSH через `appleboy/ssh-action@v1.2.0`. `/opt/my-chat` принадлежит `deploy:deploy`.
-- [ ] Проверить, что после push в `main` деплой проходит автоматически.
-  > Проверить после первого push в `main` с новым `cd.yml`.
+- [x] Проверить, что после push в `main` деплой проходит автоматически.
+  > Подтверждено: CD workflow отработал после merge в main — `git pull` + `docker compose build` + `up -d` прошли успешно.
 - [ ] Добавить Slack/Telegram уведомление при успешном/неуспешном деплое (опционально).
 
 ---
