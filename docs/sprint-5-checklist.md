@@ -246,12 +246,19 @@
 ## 12) Критерии готовности (DoD)
 
 - [ ] `https://beepru.ru` открывается без предупреждений на iOS/Android браузере.
+  > Проверить вручную на телефоне.
 - [ ] `wss://beepru.ru/ws/connect` устанавливает соединение с мобильного браузера.
-- [ ] Push в `main` → GitHub Actions зеленый → деплой на VPS автоматически без ручных действий.
-- [ ] Секреты не попадают в git (`.env` в `.gitignore`, проверено).
+  > Проверить через мобильный клиент.
+- [x] Push в `main` → GitHub Actions зеленый → деплой на VPS автоматически без ручных действий.
+  > Подтверждено: несколько CD workflow завершились зелёными после push в main.
+- [x] Секреты не попадают в git (`.env` в `.gitignore`, проверено).
+  > `git log --all -- '.env'` — пустой вывод. `.gitignore` содержит `.env`, `.env.*`, `deploy/prod/certbot/`.
 - [ ] Все 5+ сервисов работают на VPS и показывают `healthy`.
-- [ ] Старые docker-образы автоматически очищаются после деплоя.
-- [ ] `docs/sprint-5-plan.md` и этот чеклист актуализированы.
+  > Проверить: `docker compose -f deploy/prod/docker-compose.prod.yml ps` на VPS.
+- [x] Старые docker-образы автоматически очищаются после деплоя.
+  > CD workflow выполняет `docker image prune -f` после каждого деплоя.
+- [x] `docs/sprint-5-plan.md` и этот чеклист актуализированы.
+  > Чеклист обновлён по итогам всех выполненных пунктов спринта.
 
 ---
 
@@ -259,9 +266,11 @@
 
 - [ ] Открыть `https://beepru.ru` на реальном телефоне → нет предупреждений SSL.
 - [ ] Войти через мобильный клиент → отправить сообщение → получить в реальном времени.
-- [ ] Показать GitHub Actions: зеленый CI + зеленый CD после последнего push.
+- [x] Показать GitHub Actions: зеленый CI + зеленый CD после последнего push.
+  > Несколько успешных прогонов CI + CD подтверждены в ходе спринта.
 - [ ] Показать `docker compose ps` на VPS — все сервисы running/healthy.
-- [ ] Зафиксировать known limitations Sprint 5 (`docs/known-limitations-sprint-5.md`).
+- [x] Зафиксировать known limitations Sprint 5 (`docs/known-limitations-sprint-5.md`).
+  > Файл создан.
 
 ---
 
@@ -275,4 +284,4 @@
 
 ---
 
-**Sprint 5 — PLANNED**
+**Sprint 5 — IN PROGRESS** (ожидает: ручная проверка с телефона, `docker compose ps` на VPS)
