@@ -184,7 +184,7 @@ function handleWSMessage(raw: string): void {
         appendBubble(msg);
         scrollToBottom();
         if (msg.sender_id !== currentUserId) {
-          void markRead(msg.id).catch(() => undefined);
+          tryMarkRead(msg.id);
         }
       }
       break;
@@ -261,6 +261,31 @@ function stopAllTTLTimers(): void {
   }
 }
 
+// --- Page Visibility / markRead ---
+//
+// markRead вызывается только когда диалог видим (document.hidden === false).
+// Если вкладка скрыта — ID складываются в pendingMarkRead и отправляются
+// при возврате фокуса через visibilitychange.
+
+const pendingMarkRead = new Set<string>();
+
+function tryMarkRead(messageId: string): void {
+  if (!document.hidden) {
+    void markRead(messageId).catch(() => undefined);
+  } else {
+    pendingMarkRead.add(messageId);
+  }
+}
+
+function flushPendingMarkRead(): void {
+  if (pendingMarkRead.size === 0) return;
+  const ids = [...pendingMarkRead];
+  pendingMarkRead.clear();
+  for (const id of ids) {
+    void markRead(id).catch(() => undefined);
+  }
+}
+
 // --- Chat screen ---
 
 let currentUserId = "";
@@ -331,8 +356,8 @@ async function loadChatHistory(): Promise<void> {
         // TTL уже запущен — показываем обратный отсчёт (сообщение ещё не истекло)
         startTTLTimer(msg.id, msg.expires_at, bubbleEl);
       } else if (msg.sender_id !== currentUserId) {
-        // Входящее непрочитанное — помечаем прочитанным; сервер запустит TTL
-        void markRead(msg.id).catch(() => undefined);
+        // Входящее непрочитанное — помечаем прочитанным если вкладка видима
+        tryMarkRead(msg.id);
       }
     }
     scrollToBottom();
@@ -360,6 +385,7 @@ async function handleSendMessage(): Promise<void> {
 
 function handleBackFromChat(): void {
   stopAllTTLTimers();
+  pendingMarkRead.clear();
   currentDialogId = "";
   void loadHome();
 }
@@ -602,6 +628,13 @@ async function init(): Promise<void> {
   el("btn-send").addEventListener("click", () => void handleSendMessage());
   el("msg-input").addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Enter") void handleSendMessage();
+  });
+
+  // При возврате фокуса — дочитываем накопленные непрочитанные сообщения
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && currentDialogId) {
+      flushPendingMarkRead();
+    }
   });
 
   // Проверка biometric availability
