@@ -203,11 +203,20 @@
 
 ## 10) Smoke-тесты prod окружения
 
-- [ ] `curl https://beepru.ru/health` → `{"status":"ok"}`.
-- [ ] `curl -k https://beepru.ru/health` не нужен (сертификат валидный, не staging).
+- [x] `curl https://beepru.ru/health` → `{"status":"ok"}`.
+  > HTTP 200, тело `{"status":"ok"}`.
+- [x] `curl -k https://beepru.ru/health` не нужен (сертификат валидный, не staging).
+  > TLSv1.3, issuer: Let's Encrypt, `SSL certificate verify ok.`, HSTS заголовок присутствует.
+- [x] HTTP → HTTPS редирект работает: `curl -I http://beepru.ru` → HTTP 301.
+- [x] Security headers: `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options` — все присутствуют.
+- [x] `GET /api/v1/me/unread-count` без токена → HTTP 401 `{"error":{"code":"unauthenticated",...}}` (main-service отвечает корректно).
+- [x] `GET /ws/connect` без токена → HTTP 401 (WebSocket endpoint доступен и возвращает 401 без upgrade).
 - [ ] `POST https://beepru.ru/auth/api/v1/auth/login` → получить токены.
+  > **BUG FOUND & FIXED:** nginx проксировал `/auth/api/v1/auth/login` → auth-proxy без снятия префикса `/auth`, а auth-proxy ожидает `/api/v1/auth/login`. Добавлен `rewrite ^/auth/(.*) /$1 break;` в nginx conf (commit `916fcaa`). Нужно задеплоить на VPS: `git pull && docker exec my-chat-nginx-prod nginx -s reload`.
 - [ ] `GET https://beepru.ru/api/v1/me/unread-count` с Bearer token → 200.
+  > Требует рабочего auth (пункт выше).
 - [ ] WebSocket подключение: `wss://beepru.ru/ws/connect` с валидным token → upgrade 101.
+  > Требует рабочего auth (пункт выше).
 - [ ] Открыть мобильный клиент с телефона → нет предупреждений SSL → подключение к WS работает.
 - [ ] `docker compose -f deploy/prod/docker-compose.prod.yml ps` на VPS → все сервисы `healthy`.
 - [ ] Метрики: `https://beepru.ru/metrics` (или прямой доступ с VPS) → prometheus text format.
