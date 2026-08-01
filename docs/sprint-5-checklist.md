@@ -137,22 +137,34 @@
 
 ## 7) Подготовка VPS (one-time, вручную)
 
-- [ ] Выбрать и арендовать VPS (минимум 1 GB RAM, рекомендуется 2 GB).
-- [ ] Установить Docker Engine (официальный способ: `install.docker.com`).
-- [ ] Добавить пользователя `deploy`: `useradd -m -s /bin/bash deploy && usermod -aG docker deploy`.
-- [ ] Настроить firewall ufw:
+- [x] Выбрать и арендовать VPS (минимум 1 GB RAM, рекомендуется 2 GB).
+  > Selectel VPS, IP `87.228.112.251`, SSH: `ssh my-chat` (root).
+- [x] Установить Docker Engine (официальный способ: `install.docker.com`).
+  > Docker 29.7.1, Docker Compose v5.3.1.
+- [x] Добавить пользователя `deploy`: `useradd -m -s /bin/bash deploy && usermod -aG docker deploy`.
+  > `uid=1000(deploy) gid=1000(deploy) groups=1000(deploy),989(docker)`.
+- [x] Настроить firewall ufw:
   - `ufw allow 22/tcp` (SSH);
   - `ufw allow 80/tcp`;
   - `ufw allow 443/tcp`;
   - `ufw enable`.
-- [ ] Сгенерировать SSH-ключпара для GitHub Actions: `ssh-keygen -t ed25519 -C "github-actions"`.
-- [ ] Добавить публичный ключ в `~deploy/.ssh/authorized_keys` на VPS.
-- [ ] Добавить приватный ключ в GitHub Secrets: `VPS_SSH_KEY`.
-- [ ] Добавить в GitHub Secrets: `VPS_HOST` (IP), `VPS_USER` (`deploy`).
-- [ ] Клонировать репозиторий: `git clone <repo-url> /opt/my-chat`.
-- [ ] Создать `/opt/my-chat/.env` по шаблону `.env.example`, заполнить реальными значениями.
-- [ ] Убедиться, что `/opt/my-chat/.env` не попадает в git (проверить `.gitignore`).
-- [ ] Добавить `deploy/prod/certbot/` в `.gitignore`.
+  > ufw установлен (`apt install ufw`), статус active, порты 22/80/443 открыты.
+- [x] Сгенерировать SSH-ключпара для GitHub Actions: `ssh-keygen -t ed25519 -C "github-actions"`.
+  > Ключ сгенерирован в `/tmp/github-actions-key`.
+- [x] Добавить публичный ключ в `~deploy/.ssh/authorized_keys` на VPS.
+  > Добавлен, права `700/600`, владелец `deploy:deploy`.
+- [x] Добавить приватный ключ в GitHub Secrets: `VPS_SSH_KEY`.
+  > Добавлен в GitHub Secrets репозитория.
+- [x] Добавить в GitHub Secrets: `VPS_HOST` (IP), `VPS_USER` (`deploy`).
+  > `VPS_HOST=87.228.112.251`, `VPS_USER=deploy`.
+- [x] Клонировать репозиторий: `git clone <repo-url> /opt/my-chat`.
+  > Клонирован в `/opt/my-chat`, ветка `main`.
+- [x] Создать `/opt/my-chat/.env` по шаблону `.env.example`, заполнить реальными значениями.
+  > Заполнены: `POSTGRES_PASSWORD`, `DATABASE_DSN`, `JWT_SECRET`, `METRICS_PASSWORD`.
+- [x] Убедиться, что `/opt/my-chat/.env` не попадает в git (проверить `.gitignore`).
+  > `git status` на VPS: `nothing to commit, working tree clean`. `.env` в `.gitignore`.
+- [x] Добавить `deploy/prod/certbot/` в `.gitignore`.
+  > Добавлено в пункте 1.
 
 ---
 
@@ -174,7 +186,7 @@
 
 ## 9) GitHub Actions — CD workflow
 
-- [ ] Создать `.github/workflows/cd.yml`:
+- [x] Создать `.github/workflows/cd.yml`:
   - trigger: `push` на `main`, только если CI прошел (`needs: ci` или `workflow_run`);
   - job `deploy`:
     - использовать `appleboy/ssh-action` или нативный SSH через `webfactory/ssh-agent`;
@@ -182,7 +194,9 @@
     - `docker compose -f deploy/prod/docker-compose.prod.yml build --no-cache`;
     - `docker compose -f deploy/prod/docker-compose.prod.yml up -d --remove-orphans`;
     - `docker image prune -f` (очистить старые образы).
+  > Создан. Trigger: `workflow_run` на CI (`completed` + `conclusion == success`). SSH через `appleboy/ssh-action@v1.2.0`. `/opt/my-chat` принадлежит `deploy:deploy`.
 - [ ] Проверить, что после push в `main` деплой проходит автоматически.
+  > Проверить после первого push в `main` с новым `cd.yml`.
 - [ ] Добавить Slack/Telegram уведомление при успешном/неуспешном деплое (опционально).
 
 ---
