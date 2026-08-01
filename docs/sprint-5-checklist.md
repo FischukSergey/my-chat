@@ -238,8 +238,8 @@
   > `strict-transport-security: max-age=63072000; includeSubDomains` — присутствует.
 - [x] HTTP автоматически редиректит на HTTPS: `curl -I http://beepru.ru` → 301.
   > HTTP/1.1 301 Moved Permanently, Location: https://beepru.ru/health — редирект работает.
-- [ ] SSL grade на ssllabs.com: минимум B (рекомендуется A).
-  > Проверить вручную: https://www.ssllabs.com/ssltest/analyze.html?d=beepru.ru
+- [x] SSL grade на ssllabs.com: минимум B (рекомендуется A).
+  > **A+** — максимальная оценка. Certificate, Protocol Support, Key Exchange, Cipher Strength — все 100/100. TLS 1.3, HSTS с длинным сроком, EC 256 bits (SHA384withECDSA), trusted по Mozilla/Apple/Android/Java/Windows.
 
 ---
 
