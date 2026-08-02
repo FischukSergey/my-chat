@@ -4,9 +4,11 @@ import "time"
 
 // User представляет пользователя системы.
 type User struct {
-	ID        string
-	Status    string // "active" | "blocked"
-	CreatedAt time.Time
+	ID           string
+	Status       string // "active" | "blocked"
+	Username     string // уникальный логин; пустая строка у legacy-пользователей без credentials
+	PasswordHash string // bcrypt(cost=12); пустая строка у legacy-пользователей
+	CreatedAt    time.Time
 }
 
 // AuthSession представляет server-side запись refresh-сессии пользователя.
@@ -43,14 +45,15 @@ type Message struct {
 
 // Device представляет зарегистрированное устройство пользователя для push-уведомлений.
 type Device struct {
-	ID         string
-	UserID     string
-	Platform   string
-	PushToken  string
-	Enabled    bool
-	LastSeenAt time.Time
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID               string
+	UserID           string
+	Platform         string
+	PushToken        string // legacy APNs/FCM; пустая строка = NULL в БД (platform=web)
+	PushSubscription string // JSON Web Push subscription; пустая строка = NULL в БД (platform=ios/android)
+	Enabled          bool
+	LastSeenAt       time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // NotificationOutboxStatus — допустимые статусы outbox-задачи.

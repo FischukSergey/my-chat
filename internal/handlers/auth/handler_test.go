@@ -17,21 +17,24 @@ import (
 // --- mock ---
 
 const (
-	testUserID       = "user_id"
+	testUsername     = "alice"
+	testPassword     = "secret99"
+	keyPassword      = "password"
+	keyUsername      = "username"
 	testRefreshToken = "refresh_token"
 	testTokenValue   = "tok"
 )
 
 type mockAuthSvc struct {
-	loginFn     func(ctx context.Context, userID string, deviceID *string) (authsvc.TokenPair, error)
+	loginFn     func(ctx context.Context, username, password string, deviceID *string) (authsvc.TokenPair, error)
 	refreshFn   func(ctx context.Context, refreshToken string) (authsvc.TokenPair, error)
 	logoutFn    func(ctx context.Context, refreshToken string) error
 	revokeAllFn func(ctx context.Context, userID string) error
 }
 
-func (m *mockAuthSvc) Login(ctx context.Context, userID string, deviceID *string) (authsvc.TokenPair, error) {
+func (m *mockAuthSvc) Login(ctx context.Context, username, password string, deviceID *string) (authsvc.TokenPair, error) {
 	if m.loginFn != nil {
-		return m.loginFn(ctx, userID, deviceID)
+		return m.loginFn(ctx, username, password, deviceID)
 	}
 
 	return authsvc.TokenPair{}, nil
@@ -100,7 +103,7 @@ func TestLogin_Success(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockAuthSvc{
-		loginFn: func(_ context.Context, _ string, _ *string) (authsvc.TokenPair, error) {
+		loginFn: func(_ context.Context, _, _ string, _ *string) (authsvc.TokenPair, error) {
 			return authsvc.TokenPair{
 				AccessToken:  "acc",
 				RefreshToken: "ref",
@@ -111,7 +114,7 @@ func TestLogin_Success(t *testing.T) {
 	}
 
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login",
-		jsonBody(map[string]string{testUserID: "user-1"}))
+		jsonBody(map[string]string{keyUsername: testUsername, keyPassword: testPassword}))
 	w := httptest.NewRecorder()
 
 	authhandler.New(svc).Login(w, r)
@@ -132,7 +135,7 @@ func TestLogin_Success(t *testing.T) {
 	}
 }
 
-func TestLogin_MissingUserID_Returns400(t *testing.T) {
+func TestLogin_MissingCredentials_Returns400(t *testing.T) {
 	t.Parallel()
 
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login",
@@ -149,17 +152,40 @@ func TestLogin_MissingUserID_Returns400(t *testing.T) {
 	}
 }
 
+func TestLogin_InvalidCredentials_Returns401(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthSvc{
+		loginFn: func(_ context.Context, _, _ string, _ *string) (authsvc.TokenPair, error) {
+			return authsvc.TokenPair{}, authsvc.ErrInvalidCredentials
+		},
+	}
+
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login",
+		jsonBody(map[string]string{keyUsername: testUsername, keyPassword: "wrong"}))
+	w := httptest.NewRecorder()
+
+	authhandler.New(svc).Login(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status: want 401, got %d", w.Code)
+	}
+	if code := decodeErrorCode(t, w.Body); code != "invalid_credentials" {
+		t.Errorf("error code: want invalid_credentials, got %q", code)
+	}
+}
+
 func TestLogin_ServiceError_Returns500(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockAuthSvc{
-		loginFn: func(_ context.Context, _ string, _ *string) (authsvc.TokenPair, error) {
+		loginFn: func(_ context.Context, _, _ string, _ *string) (authsvc.TokenPair, error) {
 			return authsvc.TokenPair{}, errors.New("db error")
 		},
 	}
 
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login",
-		jsonBody(map[string]string{testUserID: "user-1"}))
+		jsonBody(map[string]string{keyUsername: testUsername, keyPassword: testPassword}))
 	w := httptest.NewRecorder()
 
 	authhandler.New(svc).Login(w, r)
@@ -173,13 +199,13 @@ func TestLogin_InactiveUser_Returns403WithUserInactiveCode(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockAuthSvc{
-		loginFn: func(_ context.Context, _ string, _ *string) (authsvc.TokenPair, error) {
+		loginFn: func(_ context.Context, _, _ string, _ *string) (authsvc.TokenPair, error) {
 			return authsvc.TokenPair{}, authsvc.ErrUserInactive
 		},
 	}
 
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login",
-		jsonBody(map[string]string{testUserID: "blocked-user"}))
+		jsonBody(map[string]string{keyUsername: testUsername, keyPassword: testPassword}))
 	w := httptest.NewRecorder()
 
 	authhandler.New(svc).Login(w, r)

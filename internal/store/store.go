@@ -3,8 +3,11 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -40,4 +43,15 @@ func (s *Store) Close() {
 // DB возвращает пул pgx для использования в репозиториях.
 func (s *Store) DB() *pgxpool.Pool {
 	return s.pool
+}
+
+// isUniqueViolation возвращает true, если ошибка — нарушение уникального ограничения PostgreSQL
+// и имя индекса/ограничения содержит constraintName.
+func isUniqueViolation(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return strings.Contains(pgErr.ConstraintName, constraintName)
+	}
+
+	return false
 }

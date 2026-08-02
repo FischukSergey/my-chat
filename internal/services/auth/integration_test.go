@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	authsvc "my-chat/internal/services/auth"
 	"my-chat/internal/store"
@@ -52,12 +53,24 @@ func setupAuthService(t *testing.T) (*authsvc.Service, *store.Store) {
 	return svc, s
 }
 
-// insertTestUser вставляет пользователя и удаляет его в Cleanup.
-func insertTestUser(t *testing.T, ctx context.Context, s *store.Store) string {
+// insertTestUser вставляет пользователя с учётными данными и удаляет его в Cleanup.
+// Возвращает username и plaintext-пароль.
+func insertTestUser(t *testing.T, ctx context.Context, s *store.Store) (username, password string) {
 	t.Helper()
 
 	id := uuid.NewString()
-	_, err := s.DB().Exec(ctx, "INSERT INTO users (id) VALUES ($1)", id)
+	username = "testuser_" + id[:8]
+	password = "testpass1"
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
+
+	_, err = s.DB().Exec(ctx,
+		"INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)",
+		id, username, string(hash),
+	)
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
@@ -66,7 +79,7 @@ func insertTestUser(t *testing.T, ctx context.Context, s *store.Store) string {
 		_, _ = s.DB().Exec(ctx, "DELETE FROM users WHERE id = $1", id)
 	})
 
-	return id
+	return username, password
 }
 
 // TestIntegration_Login_Refresh_OldRefreshInvalid проверяет сценарий:
@@ -76,10 +89,10 @@ func TestIntegration_Login_Refresh_OldRefreshInvalid(t *testing.T) {
 
 	svc, db := setupAuthService(t)
 	ctx := context.Background()
-	userID := insertTestUser(t, ctx, db)
+	username, password := insertTestUser(t, ctx, db)
 
 	// Login — получаем первую пару токенов.
-	pair1, err := svc.Login(ctx, userID, nil)
+	pair1, err := svc.Login(ctx, username, password, nil)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -117,9 +130,9 @@ func TestIntegration_Logout_RefreshFails(t *testing.T) {
 
 	svc, db := setupAuthService(t)
 	ctx := context.Background()
-	userID := insertTestUser(t, ctx, db)
+	username, password := insertTestUser(t, ctx, db)
 
-	pair, err := svc.Login(ctx, userID, nil)
+	pair, err := svc.Login(ctx, username, password, nil)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -151,10 +164,10 @@ func TestIntegration_ReuseDetection_FamilyRevoked(t *testing.T) {
 
 	svc, db := setupAuthService(t)
 	ctx := context.Background()
-	userID := insertTestUser(t, ctx, db)
+	username, password := insertTestUser(t, ctx, db)
 
 	// Login.
-	pair1, err := svc.Login(ctx, userID, nil)
+	pair1, err := svc.Login(ctx, username, password, nil)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}

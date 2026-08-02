@@ -16,6 +16,7 @@ import (
 	debughandler "my-chat/internal/handlers/debug"
 	devicehandler "my-chat/internal/handlers/device"
 	"my-chat/internal/handlers/health"
+	userhandler "my-chat/internal/handlers/user"
 	wshandler "my-chat/internal/handlers/ws"
 	"my-chat/internal/hub"
 	"my-chat/internal/logger"
@@ -23,6 +24,7 @@ import (
 	mw "my-chat/internal/middleware"
 	chatservice "my-chat/internal/services/chat"
 	deviceservice "my-chat/internal/services/device"
+	userservice "my-chat/internal/services/user"
 	"my-chat/internal/services/wsdelivery"
 	"my-chat/internal/store"
 )
@@ -88,9 +90,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	messageRepo := store.NewMessageRepository(postgresStore)
 	receiptRepo := store.NewReceiptRepository(postgresStore)
 	deviceRepo := store.NewDeviceRepository(postgresStore)
+	userRepo := store.NewUserRepository(postgresStore)
 	outboxRepo := store.NewNotificationOutboxRepository(postgresStore)
 	wsOutboxRepo := store.NewWSEventOutboxRepository(postgresStore)
-	log.Info("инициализированы репозитории хранилища", slog.Int("repositories_count", 6))
+	log.Info("инициализированы репозитории хранилища", slog.Int("repositories_count", 7))
 
 	connHub := hub.New(log)
 	connHub.SetConnGauge(metrics.WSConnectionsActive)
@@ -98,8 +101,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	chatSvc := chatservice.NewService(dialogRepo, messageRepo, receiptRepo, connHub, outboxRepo, messageTTL)
 	chatSvc.SetMessageCounter(metrics.MessageSendTotal)
 	deviceSvc := deviceservice.NewService(deviceRepo)
+	userSvc := userservice.NewService(userRepo)
 	chatHandler := chathandler.New(chatSvc)
 	deviceHandler := devicehandler.New(deviceSvc)
+	userHandler := userhandler.New(userSvc)
 	wsHandler := wshandler.New(connHub, cfg.JWT.Secret, log)
 	wsDelivery := wsdelivery.New(wsOutboxRepo, connHub, log, wsDeliveryBatchSize)
 
@@ -109,6 +114,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	router.Get("/health", health.Handle)
 	router.Get("/debug", debughandler.Handle)
 	router.Get("/ws/connect", wsHandler.Connect)
+
+	// Публичные маршруты (без auth middleware).
+	router.Post("/api/v1/users/register", userHandler.Register)
 
 	router.Group(func(r chi.Router) {
 		r.Use(mw.Authenticate(cfg.JWT.Secret))

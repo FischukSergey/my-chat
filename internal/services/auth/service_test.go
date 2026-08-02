@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	auth "my-chat/internal/services/auth"
 	"my-chat/internal/store"
 )
@@ -15,21 +17,31 @@ import (
 // --- mocks ---
 
 const (
-	testUser1ID  = "user-1"
-	testFamily1  = "family-1"
-	testSession1 = "sess-1"
+	testUser1ID   = "user-1"
+	testFamily1   = "family-1"
+	testSession1  = "sess-1"
+	testUsername1 = "alice"
+	testPassword1 = "secret99"
 )
 
+// testPasswordHash — bcrypt-хеш testPassword1 с минимальной стоимостью (для скорости тестов).
+var testPasswordHash = func() string {
+	h, err := bcrypt.GenerateFromPassword([]byte(testPassword1), bcrypt.MinCost)
+	if err != nil {
+		panic(err)
+	}
+	return string(h)
+}()
+
 type mockUserRepo struct {
-	findByIDFn func(ctx context.Context, userID string) (store.User, error)
+	findByUsernameFn func(ctx context.Context, username string) (store.User, error)
 }
 
-func (m *mockUserRepo) FindByID(ctx context.Context, userID string) (store.User, error) {
-	if m.findByIDFn != nil {
-		return m.findByIDFn(ctx, userID)
+func (m *mockUserRepo) FindByUsername(ctx context.Context, username string) (store.User, error) {
+	if m.findByUsernameFn != nil {
+		return m.findByUsernameFn(ctx, username)
 	}
-	// По умолчанию возвращаем активного пользователя.
-	return store.User{ID: userID, Status: "active"}, nil
+	return store.User{ID: testUser1ID, Status: "active", Username: username, PasswordHash: testPasswordHash}, nil
 }
 
 type mockSessionRepo struct {
@@ -118,7 +130,7 @@ func TestLogin_ReturnsTokenPairAndCreatesSession(t *testing.T) {
 		},
 	}
 
-	pair, err := newService(repo).Login(context.Background(), testUser1ID, nil)
+	pair, err := newService(repo).Login(context.Background(), testUsername1, testPassword1, nil)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -153,7 +165,7 @@ func TestLogin_RepoError_ReturnsError(t *testing.T) {
 		},
 	}
 
-	_, err := newService(repo).Login(context.Background(), testUser1ID, nil)
+	_, err := newService(repo).Login(context.Background(), testUsername1, testPassword1, nil)
 	if err == nil {
 		t.Fatal("expected error from repo, got nil")
 	}
@@ -161,13 +173,13 @@ func TestLogin_RepoError_ReturnsError(t *testing.T) {
 
 func TestLogin_InactiveUser_ReturnsErrUserInactive(t *testing.T) {
 	userRepo := &mockUserRepo{
-		findByIDFn: func(_ context.Context, userID string) (store.User, error) {
-			return store.User{ID: userID, Status: "blocked"}, nil
+		findByUsernameFn: func(_ context.Context, username string) (store.User, error) {
+			return store.User{ID: testUser1ID, Status: "blocked", Username: username, PasswordHash: testPasswordHash}, nil
 		},
 	}
 	svc := auth.NewService(&mockSessionRepo{}, userRepo, testConfig(), testLogger())
 
-	_, err := svc.Login(context.Background(), "blocked-user", nil)
+	_, err := svc.Login(context.Background(), testUsername1, testPassword1, nil)
 	if err == nil {
 		t.Fatal("expected ErrUserInactive, got nil")
 	}
@@ -176,17 +188,32 @@ func TestLogin_InactiveUser_ReturnsErrUserInactive(t *testing.T) {
 	}
 }
 
-func TestLogin_UserNotFound_ReturnsError(t *testing.T) {
+func TestLogin_UserNotFound_ReturnsErrInvalidCredentials(t *testing.T) {
 	userRepo := &mockUserRepo{
-		findByIDFn: func(_ context.Context, _ string) (store.User, error) {
+		findByUsernameFn: func(_ context.Context, _ string) (store.User, error) {
 			return store.User{}, store.ErrUserNotFound
 		},
 	}
 	svc := auth.NewService(&mockSessionRepo{}, userRepo, testConfig(), testLogger())
 
-	_, err := svc.Login(context.Background(), "unknown-user", nil)
+	_, err := svc.Login(context.Background(), "unknown", testPassword1, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, auth.ErrInvalidCredentials) {
+		t.Errorf("expected ErrInvalidCredentials, got %v", err)
+	}
+}
+
+func TestLogin_WrongPassword_ReturnsErrInvalidCredentials(t *testing.T) {
+	svc := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger())
+
+	_, err := svc.Login(context.Background(), testUsername1, "wrong-password", nil)
+	if err == nil {
+		t.Fatal("expected ErrInvalidCredentials, got nil")
+	}
+	if !errors.Is(err, auth.ErrInvalidCredentials) {
+		t.Errorf("expected ErrInvalidCredentials, got %v", err)
 	}
 }
 
@@ -203,7 +230,7 @@ func TestRefresh_ValidToken_RotatesSession(t *testing.T) {
 	}
 	svc := auth.NewService(repo, &mockUserRepo{}, testConfig(), testLogger())
 
-	pair, err := svc.Login(context.Background(), testUser1ID, nil)
+	pair, err := svc.Login(context.Background(), testUsername1, testPassword1, nil)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -256,7 +283,7 @@ func TestRefresh_InvalidJWT_ReturnsErrRevoked(t *testing.T) {
 func TestRefresh_SessionNotFound_ReturnsErrRevoked(t *testing.T) {
 	// Выпускаем валидный токен, но репо не найдёт сессию.
 	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
-		context.Background(), testUser1ID, nil,
+		context.Background(), testUsername1, testPassword1, nil,
 	)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -276,7 +303,7 @@ func TestRefresh_SessionNotFound_ReturnsErrRevoked(t *testing.T) {
 
 func TestRefresh_RevokedSession_ReturnsErrCompromised_AndRevokesFamily(t *testing.T) {
 	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
-		context.Background(), testUser1ID, nil,
+		context.Background(), testUsername1, testPassword1, nil,
 	)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -313,7 +340,7 @@ func TestRefresh_RevokedSession_ReturnsErrCompromised_AndRevokesFamily(t *testin
 
 func TestRefresh_ExpiredSession_ReturnsErrExpired(t *testing.T) {
 	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
-		context.Background(), testUser1ID, nil,
+		context.Background(), testUsername1, testPassword1, nil,
 	)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -342,7 +369,7 @@ func TestRefresh_ExpiredSession_ReturnsErrExpired(t *testing.T) {
 
 func TestLogout_RevokesSession(t *testing.T) {
 	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
-		context.Background(), testUser1ID, nil,
+		context.Background(), testUsername1, testPassword1, nil,
 	)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -381,7 +408,7 @@ func TestLogout_InvalidToken_ReturnsErrRevoked(t *testing.T) {
 
 func TestLogout_SessionNotFound_ReturnsNil(t *testing.T) {
 	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
-		context.Background(), testUser1ID, nil,
+		context.Background(), testUsername1, testPassword1, nil,
 	)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -401,7 +428,7 @@ func TestLogout_SessionNotFound_ReturnsNil(t *testing.T) {
 
 func TestLogout_AlreadyRevoked_ReturnsNil(t *testing.T) {
 	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
-		context.Background(), testUser1ID, nil,
+		context.Background(), testUsername1, testPassword1, nil,
 	)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
