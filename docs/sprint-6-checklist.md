@@ -14,81 +14,95 @@
 
 ## 1) Подготовка и контракты
 
-- [ ] Утвердить схему `users` после добавления `username` + `password_hash`.
-- [ ] Утвердить новый контракт `POST /api/v1/auth/login` (username/password вместо user_id).
-- [ ] Утвердить контракт `POST /api/v1/users/register`.
-- [ ] Утвердить формат `PushSubscription` в `POST /api/v1/devices/register` (поле `push_subscription` вместо `push_token`).
-- [ ] Утвердить новый endpoint `GET /api/v1/push/vapid-public-key`.
-- [ ] Подготовить `docs/api-sprint-6.md` с обновлёнными контрактами.
+- [x] Утвердить схему `users` после добавления `username` + `password_hash`.
+- [x] Утвердить новый контракт `POST /api/v1/auth/login` (username/password вместо user_id).
+- [x] Утвердить контракт `POST /api/v1/users/register`.
+- [x] Утвердить формат `PushSubscription` в `POST /api/v1/devices/register` (поле `push_subscription` вместо `push_token`).
+- [x] Утвердить новый endpoint `GET /api/v1/push/vapid-public-key`.
+- [x] Подготовить `docs/api-sprint-6.md` с обновлёнными контрактами.
+
+Примечание: контракты зафиксированы в `docs/api-sprint-6.md`. Схема `users`: `username` UNIQUE + `password_hash` (bcrypt cost=12). Login — breaking change (`username`/`password`, ошибка `401 invalid_credentials`). Register — `POST /api/v1/users/register` на main-service (`201` + `user_id`, `409 username_taken`). Devices: для `platform=web` обязателен `push_subscription` JSON; `push_token` становится nullable. Добавлены `GET /api/v1/push/vapid-public-key` и device binding через `X-Device-ID` (`403 device_mismatch`).
 
 ---
 
 ## 2) VAPID-ключи (one-time, выполняется один раз)
 
-- [ ] Сгенерировать VAPID ключи:
+- [x] Сгенерировать VAPID ключи:
   ```bash
-  go run github.com/SherClockHolmes/webpush-go/cmd/vapid@latest
+  # cmd/vapid в webpush-go отсутствует; использовать helper:
+  # private, public, err := webpush.GenerateVAPIDKeys()
+  # либо: npx web-push generate-vapid-keys --json
   ```
   Результат: `VAPID_PRIVATE_KEY` и `VAPID_PUBLIC_KEY`.
-- [ ] Добавить в `.env` на VPS: `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT=mailto:you@example.com`.
-- [ ] Добавить в `.env.example` плейсхолдеры (без реальных значений).
-- [ ] Убедиться, что `.env` в `.gitignore`.
+- [x] Добавить в `.env` на VPS: `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT=mailto:you@example.com`.
+- [x] Добавить в `.env.example` плейсхолдеры (без реальных значений).
+- [x] Убедиться, что `.env` в `.gitignore`.
+
+Примечание: на VPS (`/opt/my-chat/.env`) `VAPID_PRIVATE_KEY` / `VAPID_PUBLIC_KEY` / `VAPID_SUBJECT=mailto:admin@beepru.ru` уже присутствуют — не перезаписывались. В корневом `.env.example` добавлены плейсхолдеры VAPID. `.env` игнорируется (`.gitignore` + `!.env.example`). Пакет `webpush-go/cmd/vapid` не существует — генерация через `webpush.GenerateVAPIDKeys()`.
 
 ---
 
 ## 3) База данных — миграция credentials
 
-- [ ] Создать `internal/store/migrations/010_user_credentials.sql`:
+- [x] Создать `internal/store/migrations/010_user_credentials.sql`:
   - `ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT UNIQUE NOT NULL DEFAULT ''`;
   - `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT ''`;
   - убрать `DEFAULT ''` после seed-данных (или в миграции сразу добавить тестовых пользователей).
-- [ ] Добавить `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username)`.
-- [ ] Создать seed-скрипт `deploy/local/seed-users.sql` с тестовыми пользователями (username + bcrypt-hash).
-- [ ] Проверить идемпотентность миграции (повторный запуск без ошибок).
-- [ ] Обновить модель `User` в `internal/store/models.go`: добавить `Username string`, `PasswordHash string`.
+- [x] Добавить `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username)`.
+- [x] Создать seed-скрипт `deploy/local/seed-users.sql` с тестовыми пользователями (username + bcrypt-hash).
+- [x] Проверить идемпотентность миграции (повторный запуск без ошибок).
+- [x] Обновить модель `User` в `internal/store/models.go`: добавить `Username string`, `PasswordHash string`.
+
+Примечание: использован partial unique index `WHERE username != ''` — позволяет существующим строкам с `DEFAULT ''` пережить повторную миграцию без конфликта уникальности. Seed: `alice`/`bob` с паролем `password123` (bcrypt cost=12), upsert по `id`. `FindByID` обновлён — читает `username` и `password_hash`. Идемпотентность проверена двойным прогоном. Линтер — 0 issues.
 
 ---
 
 ## 4) База данных — миграция PushSubscription
 
-- [ ] Создать `internal/store/migrations/011_device_push_subscription.sql`:
+- [x] Создать `internal/store/migrations/011_device_push_subscription.sql`:
   - `ALTER TABLE devices ADD COLUMN IF NOT EXISTS push_subscription JSONB`;
   - старый `push_token` оставить (nullable, для возможного будущего использования).
-- [ ] Проверить идемпотентность миграции.
-- [ ] Обновить модель `Device` в `store/models.go`: добавить `PushSubscription string`.
-- [ ] Обновить `DeviceRepository.Register` (upsert) — сохранять `push_subscription`.
+- [x] Проверить идемпотентность миграции.
+- [x] Обновить модель `Device` в `store/models.go`: добавить `PushSubscription string`.
+- [x] Обновить `DeviceRepository.Register` (upsert) — сохранять `push_subscription`.
+
+Примечание: `push_token` снят NOT NULL через `DO $$` block (идемпотентно). Добавлен partial unique index `devices_web_endpoint_unique` по `(user_id, endpoint) WHERE platform='web'` — позволяет `ON CONFLICT` при upsert web-устройств. `Upsert` разделён на два пути: `upsertToken` (ios/android, conflict по push_token) и `upsertWeb` (web, conflict по endpoint из push_subscription JSON). `scanDevice` и `ListActive` обновлены — используют `COALESCE` для nullable полей. Линтер — 0 issues, сборка чистая.
 
 ---
 
 ## 5) Registration endpoint
 
-- [ ] Добавить зависимость: `go get golang.org/x/crypto`.
-- [ ] Добавить `POST /api/v1/users/register` в `main-service`:
+- [x] Добавить зависимость: `go get golang.org/x/crypto`.
+- [x] Добавить `POST /api/v1/users/register` в `main-service`:
   - принимает `{ "username": "...", "password": "..." }`;
   - валидация: `username` 3–50 символов (латиница, цифры, `_`), `password` минимум 8 символов;
   - `bcrypt.GenerateFromPassword([]byte(password), 12)`;
   - `INSERT INTO users (id, username, password_hash, status)`;
   - возвращает `{ "user_id": "..." }` (201 Created).
-- [ ] Обработка конфликта → 409 `username_taken`.
-- [ ] Добавить handler `internal/handlers/user/handler.go`.
-- [ ] Добавить service `internal/services/user/service.go`.
-- [ ] Добавить маршрут в `app.go` (публичный, без auth middleware).
-- [ ] Unit-тест: success, duplicate username, password too short.
+- [x] Обработка конфликта → 409 `username_taken`.
+- [x] Добавить handler `internal/handlers/user/handler.go`.
+- [x] Добавить service `internal/services/user/service.go`.
+- [x] Добавить маршрут в `app.go` (публичный, без auth middleware).
+- [x] Unit-тест: success, duplicate username, password too short.
+
+Примечание: `golang.org/x/crypto` повышен из `indirect` до прямой зависимости (`v0.54.0`). `UserRepository.Create` + `ErrUsernameTaken` добавлены в store-слой; helper `isUniqueViolation` (pgcode `23505`) — в `store.go`. Сервис `internal/services/user` содержит regex-валидацию username (`^[a-zA-Z0-9_]{3,50}$`) и bcrypt cost=12. Публичный маршрут зарегистрирован до `router.Group` с auth middleware. 6 unit-тестов (success, 409, password short, invalid username, bad JSON, svc error) — все PASS. `task lint` — 0 issues.
 
 ---
 
 ## 6) Обновить Login endpoint
 
-- [ ] Изменить `POST /api/v1/auth/login`: принимать `{ "username": "...", "password": "..." }`.
-- [ ] В `auth.Service.Login`:
+- [x] Изменить `POST /api/v1/auth/login`: принимать `{ "username": "...", "password": "..." }`.
+- [x] В `auth.Service.Login`:
   - `UserRepository.FindByUsername(ctx, username)`;
   - `bcrypt.CompareHashAndPassword` → `ErrInvalidCredentials` при несовпадении.
-- [ ] Добавить `UserRepository.FindByUsername` в store-слой.
-- [ ] Добавить `ErrInvalidCredentials` и маппинг `401 invalid_credentials` в handler.
-- [ ] Обновить unit-тесты `auth.Service.Login`.
-- [ ] Обновить integration-тесты login.
-- [ ] Удалить старый путь `user_id`-логина.
-- [ ] Убедиться, что rate-limit middleware на login по-прежнему работает.
+- [x] Добавить `UserRepository.FindByUsername` в store-слой.
+- [x] Добавить `ErrInvalidCredentials` и маппинг `401 invalid_credentials` в handler.
+- [x] Обновить unit-тесты `auth.Service.Login`.
+- [x] Обновить integration-тесты login.
+- [x] Удалить старый путь `user_id`-логина.
+- [x] Убедиться, что rate-limit middleware на login по-прежнему работает.
+
+Примечание: `UserRepository.FindByUsername` добавлен в store-слой. `auth.Service.Login` теперь принимает `(username, password string, deviceID *string)` — находит пользователя по username, проверяет статус, сравнивает bcrypt-хеш; при несоответствии возвращает `ErrInvalidCredentials`. User enumeration защищён: `ErrUserNotFound` маппируется в тот же `ErrInvalidCredentials`. Handler: `loginRequest{Username, Password}`, маппинг `401 invalid_credentials` / `403 user_inactive` / `500 internal`. Старый `user_id`-путь удалён полностью. Rate-limit middleware остался на том же маршруте в `authproxy/app.go` — работает без изменений. Unit-тесты: добавлены `TestLogin_WrongPassword_ReturnsErrInvalidCredentials` и `TestLogin_UserNotFound_ReturnsErrInvalidCredentials`, `TestLogin_InvalidCredentials_Returns401`. Integration-тесты: `insertTestUser` вставляет пользователя с bcrypt-хешем (MinCost), Login вызывается через `username/password`. `task lint` — 0 issues.
 
 ---
 

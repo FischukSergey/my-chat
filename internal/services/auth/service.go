@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	internaljwt "my-chat/internal/jwt"
 	"my-chat/internal/store"
@@ -27,6 +28,8 @@ var (
 	ErrSessionCompromised = errors.New("session compromised: token reuse detected")
 	// ErrUserInactive возвращается, если аккаунт пользователя заблокирован (status != "active").
 	ErrUserInactive = errors.New("user account is inactive")
+	// ErrInvalidCredentials возвращается при неверном username или пароле.
+	ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
 // Config хранит настройки сервиса аутентификации.
@@ -54,7 +57,7 @@ type sessionRepository interface {
 }
 
 type userRepository interface {
-	FindByID(ctx context.Context, userID string) (store.User, error)
+	FindByUsername(ctx context.Context, username string) (store.User, error)
 }
 
 // Service управляет жизненным циклом сессий: login, refresh rotation, logout, reuse detection.
@@ -71,38 +74,45 @@ func NewService(repo sessionRepository, userRepo userRepository, cfg Config, log
 }
 
 // Login создаёт новую сессию и выдаёт пару токенов.
+// Возвращает ErrInvalidCredentials при неверном username или пароле.
 // Возвращает ErrUserInactive, если аккаунт пользователя заблокирован.
 // deviceID опционален — передаётся при наличии зарегистрированного устройства.
-func (s *Service) Login(ctx context.Context, userID string, deviceID *string) (TokenPair, error) {
-	user, err := s.userRepo.FindByID(ctx, userID)
+func (s *Service) Login(ctx context.Context, username, password string, deviceID *string) (TokenPair, error) {
+	user, err := s.userRepo.FindByUsername(ctx, username)
 	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			return TokenPair{}, ErrInvalidCredentials
+		}
 		return TokenPair{}, fmt.Errorf("find user: %w", err)
 	}
 	if user.Status != "active" {
 		s.log.Warn("auth_login_blocked",
-			slog.String("user_id", userID),
+			slog.String("username", username),
 			slog.String("status", user.Status),
 		)
 		return TokenPair{}, ErrUserInactive
+	}
+	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return TokenPair{}, ErrInvalidCredentials
 	}
 
 	sessionID := uuid.NewString()
 	familyID := uuid.NewString()
 	now := time.Now().UTC()
 
-	refreshToken, err := internaljwt.IssueRefreshWithSession(userID, sessionID, s.cfg.JWTSecret, s.cfg.RefreshTokenTTL)
+	refreshToken, err := internaljwt.IssueRefreshWithSession(user.ID, sessionID, s.cfg.JWTSecret, s.cfg.RefreshTokenTTL)
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("issue refresh token: %w", err)
 	}
 
-	accessToken, err := internaljwt.IssueAccessWithSession(userID, sessionID, s.cfg.JWTSecret, s.cfg.AccessTokenTTL)
+	accessToken, err := internaljwt.IssueAccessWithSession(user.ID, sessionID, s.cfg.JWTSecret, s.cfg.AccessTokenTTL)
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("issue access token: %w", err)
 	}
 
 	session := store.AuthSession{
 		ID:        sessionID,
-		UserID:    userID,
+		UserID:    user.ID,
 		FamilyID:  familyID,
 		TokenHash: hashToken(refreshToken),
 		DeviceID:  deviceID,
@@ -115,7 +125,7 @@ func (s *Service) Login(ctx context.Context, userID string, deviceID *string) (T
 	}
 
 	s.log.Info("auth_login",
-		slog.String("user_id", userID),
+		slog.String("user_id", user.ID),
 		slog.String("session_id", sessionID),
 		slog.String("family_id", familyID),
 	)

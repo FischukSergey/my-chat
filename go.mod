@@ -12,6 +12,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.4
 	github.com/lmittmann/tint v1.1.3
 	github.com/prometheus/client_golang v1.20.0
+	golang.org/x/crypto v0.54.0
 )
 
 require (
@@ -33,7 +34,6 @@ require (
 	github.com/prometheus/common v0.59.1 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
-	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect

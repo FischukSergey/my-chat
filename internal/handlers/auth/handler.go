@@ -11,7 +11,7 @@ import (
 )
 
 type authService interface {
-	Login(ctx context.Context, userID string, deviceID *string) (authsvc.TokenPair, error)
+	Login(ctx context.Context, username, password string, deviceID *string) (authsvc.TokenPair, error)
 	Refresh(ctx context.Context, refreshToken string) (authsvc.TokenPair, error)
 	Logout(ctx context.Context, refreshToken string) error
 	RevokeAll(ctx context.Context, userID string) error
@@ -30,7 +30,8 @@ func New(svc authService) *Handler {
 // --- Login ---
 
 type loginRequest struct {
-	UserID string `json:"user_id"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type tokenResponse struct {
@@ -44,18 +45,21 @@ type tokenResponse struct {
 // Login выдаёт пару токенов и создаёт серверную сессию.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UserID == "" {
-		respondError(w, http.StatusBadRequest, "invalid_argument", "user_id is required")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" || req.Password == "" {
+		respondError(w, http.StatusBadRequest, "invalid_argument", "username and password are required")
 		return
 	}
 
-	pair, err := h.svc.Login(r.Context(), req.UserID, nil)
+	pair, err := h.svc.Login(r.Context(), req.Username, req.Password, nil)
 	if err != nil {
-		if errors.Is(err, authsvc.ErrUserInactive) {
+		switch {
+		case errors.Is(err, authsvc.ErrInvalidCredentials):
+			respondError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
+		case errors.Is(err, authsvc.ErrUserInactive):
 			respondError(w, http.StatusForbidden, "user_inactive", "user account is inactive")
-			return
+		default:
+			respondError(w, http.StatusInternalServerError, "internal", "failed to login")
 		}
-		respondError(w, http.StatusInternalServerError, "internal", "failed to login")
 		return
 	}
 
