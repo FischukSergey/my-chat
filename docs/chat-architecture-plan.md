@@ -1,58 +1,78 @@
 # Детальный план реализации `my-chat` (архитектура в стиле OtusMS)
 
+Документ — living architecture: цели, принятые решения и фактическое устройство системы.  
+Детальные задачи и DoD — в `docs/sprint-N-plan.md` / `docs/sprint-N-checklist.md`. Контракты API — в `docs/api-sprint-N.md`.
+
+**Статус (2026-08):** спринты **1–5 DONE**; активен **Sprint 6** (credentials/register в backend готовы; Web Push, PWA, WS heartbeat, device binding — в работе). Prod: **https://beepru.ru**.
+
+---
+
 ## 1) Цели и ограничения
 
-Проект: чат для двоих пользователей с мобильным клиентом, где обязательны:
+Проект: чат для двоих пользователей с мобильным/PWA-клиентом, где обязательны:
 - push-уведомления о новых сообщениях;
 - бейдж непрочитанных сообщений на иконке приложения;
-- вход с биометрией Face ID / Touch ID;
+- вход с биометрией (Face ID / Touch ID) как защита локального refresh;
 - автоудаление сообщений по таймеру, включая исчезновение на экране.
 
 Ограничения и вводные:
-- backend пишется на Go;
-- мобильный клиент не полностью нативный (iOS/Android), предпочтительно гибридный;
-- архитектура должна быть похожа на OtusMS: сервисный подход, слои `handlers -> services -> store`, конфиги, middleware, observability.
+- backend на Go;
+- клиент гибридный / PWA (не полностью нативный App Store);
+- архитектура в стиле OtusMS: сервисы, слои `handlers → services → store`, конфиги, middleware, observability;
+- **без** Kubernetes, групповых чатов, E2EE, media/attachments (вне текущего scope).
 
 ---
 
 ## 2) Целевая архитектура
 
-### 2.1 Сервисы (по аналогии с OtusMS `cmd/*`)
+### 2.1 Сервисы (`cmd/*`)
 
 1. `cmd/main-service/`
-   - основной API для клиента (HTTP + WebSocket);
-   - чтение/отправка сообщений;
-   - учет статусов (`sent`, `delivered`, `read`);
-   - расчет и выдача `unread_count`;
-   - публикация событий в брокер (опционально) для надежной доставки уведомлений.
+   - HTTP API + WebSocket;
+   - регистрация пользователей, чат, devices, unread;
+   - `/health`, `/debug` (dev);
+   - владелец миграций БД.
 
 2. `cmd/auth-proxy/`
-   - вход/обновление токена/выход;
-   - интеграция с внешним провайдером auth (на MVP можно локальный JWT + refresh);
-   - endpoint для биометрического re-auth (клиент подтверждает локальной Face ID, сервис валидирует refresh flow).
+   - `login` / `refresh` / `logout`;
+   - JWT access + server-side refresh sessions (`auth_sessions`);
+   - rate limit на login;
+   - биометрия — только на клиенте (gate к refresh), не отдельный серверный endpoint.
 
 3. `cmd/notification-worker/`
-   - обработка событий новых сообщений;
-   - отправка push (APNs для iOS, FCM для Android);
-   - установка badge count в payload;
-   - ретраи и DLQ (dead-letter queue) при ошибках доставки.
+   - poll `notification_outbox`;
+   - провайдеры push: `noop` | `dev-log` | **`webpush`** (Sprint 6);
+   - badge в payload; retry/backoff; деактивация мёртвых подписок (410/404).
 
 4. `cmd/message-expirer/`
-   - периодическая задача удаления просроченных сообщений (`expires_at <= now`);
-   - генерация событий `message_deleted` для синхронного удаления с экранов клиентов.
+   - soft-delete по `expires_at`;
+   - события `message_deleted` через `ws_event_outbox` → доставка онлайн-клиентам.
 
 ### 2.2 Логическая схема взаимодействия
 
-1. Пользователь A отправляет сообщение в `main-service`.
-2. `main-service` сохраняет сообщение в PostgreSQL, выставляет `expires_at`, status=`sent`.
-3. Если пользователь B онлайн, сообщение уходит по WebSocket сразу.
-4. Если B офлайн/в фоне, `notification-worker` отправляет push с badge.
-5. При открытии чата клиент читает backlog и подтверждает `read`.
-6. `message-expirer` удаляет просроченные сообщения и инициирует удаление на экранах обоих клиентов.
+1. Пользователь A регистрируется (`POST /api/v1/users/register`) и логинится (`username`/`password` → JWT + refresh).
+2. A отправляет сообщение в `main-service`; статус `sent`, receipts создаются.
+3. Если B онлайн — событие по WebSocket (`message_new` и др.).
+4. Если B офлайн — задача в `notification_outbox` → worker шлёт push (целевой путь: Web Push / VAPID).
+5. При `mark_read` — пересчёт unread, `badge_updated` по WS; TTL стартует от первого чтения (`expires_at = read_at + ttl`).
+6. `message-expirer` удаляет просроченные сообщения и шлёт `message_deleted`.
+
+### 2.3 Принятые инфраструктурные решения
+
+| Тема | Решение |
+|------|---------|
+| Брокер событий | **Нет.** PostgreSQL outbox: `notification_outbox`, `ws_event_outbox` |
+| Redis | **Нет** |
+| Push | Целевой: **Web Push (VAPID)** для PWA (iOS 16.4+ / браузеры). APNs/FCM и App Store — out of scope |
+| Prod edge | Nginx :80/:443, path-based routing на одном домене |
+| Домен | `beepru.ru` |
+| Образы | Сборка на VPS (`docker compose build`), без внешнего registry |
+| CD | GitHub Actions → SSH → `git pull` + compose up + `nginx -s reload` |
+| Секреты | `/opt/my-chat/.env` на VPS; GitHub Secrets для SSH; в git только `.env.example` |
 
 ---
 
-## 3) Структура репозитория (рекомендуемая)
+## 3) Структура репозитория (фактическая)
 
 ```text
 my-chat/
@@ -62,314 +82,254 @@ my-chat/
     notification-worker/
     message-expirer/
   internal/
-    handlers/
-      auth/
-      chat/
-      ws/
-      health/
-    services/
-      auth/
-      chat/
-      notifications/
-      expiry/
-    store/
-      user/
-      chat/
-      device/
-      migrations/
+    app/                 # wiring: mainservice, authproxy, notificationworker, messageexpirer
+    handlers/            # auth, chat, device, user, ws, health, debug
+    services/            # auth, chat, device, user, notification, expirer, wsdelivery
+    store/               # репозитории + migrations/ (001–011) + Migrate()
+    clients/push/        # Provider: noop, dev-log [, webpush]
+    hub/                 # WebSocket hub
+    jwt/
     middleware/
-      jwt.go
-      rbac.go
-      request_id.go
-      logging.go
-      ratelimit.go
     config/
-      config.go
-      parse.go
-    clients/
-      push/
-      mainservice/
     metrics/
     logger/
-    models/
-  proto/
-    chat/v1/
+  mobile/                # Vite + Capacitor 8 (+ целевой PWA в Sprint 6)
   deploy/
-    local/
-      docker-compose.local.yml
-    prod/
-      docker-compose.prod.yml
-  configs/
-    config.local.example.yaml
+    local/               # compose, prometheus, seed-users.sql
+    prod/                # compose, nginx, init-ssl.sh
+    test/                # postgres для integration tests (:33433)
+  configs/               # per-service: *.local.example, *.docker.local, *.prod
   docs/
     chat-architecture-plan.md
+    sprint-N-plan.md / sprint-N-checklist.md / api-sprint-N.md
+    known-limitations-sprint-N.md
+  Taskfile.yml
+  .github/workflows/     # ci.yml, cd.yml
 ```
+
+Слои: `handlers → services → store`. Пустые заготовки пакетов и `proto/` не используются.
 
 ---
 
 ## 4) Технологические решения
 
 ### 4.1 Backend
-- Go 1.23+;
-- HTTP: `chi`;
-- Realtime: WebSocket (`gorilla/websocket` или `nhooyr.io/websocket`);
+- Go **1.25**;
+- HTTP: `chi/v5`;
+- WebSocket: `coder/websocket`;
 - DB: PostgreSQL + `pgx/v5`;
-- миграции: `goose` или свой runner;
-- кэш/сессии (опционально): Redis;
-- брокер событий (опционально, но желательно): Kafka/NATS/RabbitMQ.
+- миграции: свой runner (`internal/store/migrate.go`, `//go:embed`, advisory lock) — **не goose**;
+- пароли: `golang.org/x/crypto/bcrypt` (cost 12);
+- Web Push (Sprint 6): `SherClockHolmes/webpush-go`;
+- без Redis / Kafka / NATS / gRPC.
 
-### 4.2 Мобильный клиент
-- гибридный клиент: Ionic + Capacitor (или React + Capacitor);
-- biometry plugin (Face ID / Touch ID / Android biometrics);
-- push plugin для APNs/FCM;
-- хранение токенов в secure storage (Keychain/Keystore).
+### 4.2 Клиент
+- **Сейчас:** Vanilla TS + Vite + Capacitor 8; `@aparajita/capacitor-biometric-auth`; secure storage для refresh.
+- **Цель Sprint 6:** PWA (`manifest.json`, Service Worker, Web Push, `navigator.setAppBadge`); установка с Safari «На экран Домой».
+- Нативный App Store / Android store — не входят в текущий scope.
+
+### 4.3 Локальная разработка
+- Управление только через Taskfile: `task local:*`, `task lint`, `task test`, `task test:integration`.
+- Compose: `deploy/local/docker-compose.local.yml`.
+- Seed: `deploy/local/seed-users.sql` (`alice`/`bob`, пароль `password123`) — вручную после `local:up`.
 
 ---
 
 ## 5) Модель данных (PostgreSQL)
 
-Минимальные таблицы:
+Ключевые таблицы (миграции `001`–`011`):
 
-1. `users`
-   - `id uuid pk`
-   - `created_at timestamptz`
-   - `status text` (active/blocked)
+1. `users` — `id`, `status`, `username` UNIQUE, `password_hash`, `created_at`
+2. `dialogs` — пара `user_a_id` / `user_b_id`
+3. `messages` — `body`, `status`, `expires_at`, `deleted_at`, …
+4. `message_receipts` — `delivered_at`, `read_at`
+5. `devices` — `platform` (`ios`|`android`|`web`), nullable `push_token`, `push_subscription` JSONB
+6. `notification_outbox` — push-задачи (dedup, pending/sent/failed, retry)
+7. `auth_sessions` — refresh family, `token_hash`, `device_id`, revoke/reuse detection
+8. `ws_event_outbox` — offline/async доставка WS-событий (в т.ч. `message_deleted`)
 
-2. `dialogs`
-   - `id uuid pk`
-   - `user_a_id uuid`
-   - `user_b_id uuid`
-   - `created_at timestamptz`
-   - уникальность пары пользователей.
-
-3. `messages`
-   - `id uuid pk`
-   - `dialog_id uuid fk`
-   - `sender_id uuid fk`
-   - `body text`
-   - `created_at timestamptz`
-   - `expires_at timestamptz`
-   - `deleted_at timestamptz null`
-   - `status text` (sent/delivered/read/deleted)
-
-4. `message_receipts`
-   - `message_id uuid fk`
-   - `user_id uuid fk`
-   - `delivered_at timestamptz null`
-   - `read_at timestamptz null`
-
-5. `devices`
-   - `id uuid pk`
-   - `user_id uuid fk`
-   - `platform text` (ios/android)
-   - `push_token text`
-   - `badge_count int`
-   - `last_seen_at timestamptz`
+Unread badge считается запросами по receipts/messages — отдельного `badge_count` в `devices` нет.
 
 ---
 
-## 6) API-контракты (MVP)
+## 6) API-контракты
 
-### 6.1 HTTP
-- `POST /api/v1/auth/login`
+Актуальные детали Sprint 6: `docs/api-sprint-6.md`. Prod base: `https://beepru.ru`.
+
+### 6.1 HTTP (сводка)
+
+**auth-proxy** (prod: `/auth/...` → strip prefix):
+- `POST /api/v1/auth/login` — `{username, password}`; опционально `X-Device-ID` (Sprint 6)
 - `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/logout`
-- `POST /api/v1/devices/register`
-- `GET /api/v1/dialogs/{id}/messages?limit=&before=`
-- `POST /api/v1/dialogs/{id}/messages`
-- `POST /api/v1/messages/{id}/read`
-- `GET /api/v1/me/unread-count`
-- `GET /health`
-- `GET /debug` (debug web client для ручной отладки backend)
+
+**main-service**:
+- `POST /api/v1/users/register`
+- `POST /api/v1/devices/register` | `unregister` — для `web`: `push_subscription` (Sprint 6 §8)
+- `GET /api/v1/push/vapid-public-key` — публичный (Sprint 6 §8)
+- `GET|POST` dialogs/messages, mark read, `GET /api/v1/me/unread-count`
+- `GET /health`, `GET /debug` (local/dev)
 
 ### 6.2 WebSocket
-- `GET /ws/connect` (JWT в header/cookie)
-- события:
-  - `message_new`
-  - `message_delivered`
-  - `message_read`
-  - `message_deleted`
-  - `badge_updated`
+- `GET /ws/connect?token=...`
+- события: `message_new`, `message_delivered`, `message_read`, `message_ttl_started`, `message_deleted`, `badge_updated`
+- heartbeat ping/pong — Sprint 6 §11 (ещё не в коде)
 
-### 6.3 Debug web client (временный инструмент разработки)
+### 6.3 Debug web client
+- `GET /debug` в `main-service` — встроенная HTML-страница для ручной отладки.
+- Только local/dev; в prod отключать флагом.
+- **Важно:** после перехода login на username/password debug UI / mobile могут отставать — для smoke auth использовать curl, пока клиенты не обновлены (Sprint 6 §13–14).
 
-Цель:
-- ускорить отладку backend до готовности мобильного клиента;
-- тестировать HTTP/WS сценарии вручную из браузера;
-- быстро проверять контракты API и формат событий.
+### 6.4 Prod routing (nginx)
 
-Формат:
-- endpoint `GET /debug` в `main-service`;
-- одна встроенная HTML-страница без сборки фронтенда;
-- ручные действия: health check, кастомный HTTP запрос, подключение к WS, отправка/получение сообщений.
-
-Покрывает:
-- login/refresh/logout (когда endpoint'ы будут готовы);
-- send/read message;
-- realtime-доставку через WS;
-- события `message_deleted` и проверку TTL-сценариев.
-
-Не покрывает полностью:
-- нативный Face ID/Touch ID;
-- badge на иконке приложения;
-- поведение push в фоне на iOS/Android.
-
-Правила использования:
-- debug client только для `local/dev` окружения;
-- не использовать как пользовательский UI;
-- в production можно отключать роут `/debug` флагом конфигурации.
+| Path | Upstream |
+|------|----------|
+| `/api/` | main-service:8080 |
+| `/ws/` | main-service:8080 (upgrade) |
+| `/auth/` | auth-proxy:33081 |
+| `/health` | main-service:8080 |
+| `/` | пока 404 (раздача PWA — часть Sprint 6) |
 
 ---
 
-## 7) Авторизация и Face ID
+## 7) Авторизация и биометрия
 
-1. Первый вход: логин/код/пароль -> выдача `access` + `refresh`.
-2. `refresh` хранится только в secure storage клиента.
-3. Перед использованием refresh клиент запрашивает локальную биометрию.
-4. При успешной биометрии выполняется refresh flow, сервер выдает новый access.
+1. Регистрация: `username` (3–50, `[a-zA-Z0-9_]`) + `password` (≥8) → bcrypt.
+2. Login: проверка credentials → access JWT (короткий TTL) + refresh; сессия в `auth_sessions`.
+3. Refresh с ротацией; reuse detection → revoke family.
+4. Клиент хранит refresh в secure storage; перед использованием — локальная биометрия (Capacitor).
+5. Device binding (`X-Device-ID` на login/refresh → `403 device_mismatch`) — Sprint 6 §12.
+6. Rate limit login: **10 req / 60s / IP** → `429`.
 
-Важно:
-- Face ID не заменяет серверную аутентификацию, а защищает доступ к локальному refresh-токену;
-- при смене биометрии на устройстве делать revoke текущей сессии и повторный full login.
+Внешний IdP не используется. Face ID не заменяет серверную аутентификацию.
 
 ---
 
 ## 8) Уведомления и бейдж
 
-1. Сервер ведет источник истины по unread count.
-2. При новом сообщении офлайн-пользователю:
-   - увеличить unread count;
-   - отправить push с `badge=<актуальное значение>`.
-3. При открытии чата и `read`:
-   - пересчитать unread;
-   - отправить клиенту `badge_updated` и обнулить локальный badge.
-
-Рекомендуется:
-- идемпотентные push-задачи (dedup key);
-- retry с backoff;
-- аудит-лог `push_attempts`.
+1. Сервер — источник истины по unread count.
+2. Офлайн-получатель: запись в `notification_outbox` → worker → push с актуальным badge (пересчёт перед send — Sprint 6 §9).
+3. `mark_read` → `badge_updated` по WS; silent `badge_sync` на другие устройства — Sprint 6 §10.
+4. Провайдеры: local `dev-log`, prod до Sprint 6 — `noop`; цель — `webpush` + VAPID в `.env`.
+5. Идемпотентность через dedup key в outbox; retry с backoff.
 
 ---
 
 ## 9) Автоудаление сообщений (TTL)
 
-1. В момент создания сообщения назначать `expires_at` (например, `now + 24h`, задается политикой диалога).
-2. Клиент отображает таймер до удаления.
-3. `message-expirer` раз в N секунд:
-   - помечает истекшие сообщения `deleted_at=now, status=deleted`;
-   - публикует событие `message_deleted`.
-4. Клиенты получают событие и удаляют сообщение с экрана без ручного refresh.
-5. При reconnect клиент не получает удаленные сообщения в истории.
+1. TTL задаётся глобально: `chat.message_ttl_seconds` (**0 = выкл**). Prod: **60s**; local example: **300s**.
+2. Семантика: таймер стартует **после первого `mark_read`**, не при создании (`expires_at = read_at + ttl`); событие `message_ttl_started`.
+3. `message-expirer` (тикер ~10s, batch 100): soft-delete + `message_deleted` через `ws_event_outbox`.
+4. Клиенты удаляют сообщение с экрана; reconnect не возвращает удалённые из истории.
 
 ---
 
 ## 10) Безопасность
 
-- JWT с коротким TTL (`5-15` минут), refresh с ротацией;
-- все endpoint'ы под TLS;
-- RBAC: `user`, `admin`, `service-account`;
-- rate limit на auth и send-message;
-- серверная валидация всех входных данных;
-- журналирование критичных действий (auth, token refresh, delete event).
+Реализовано / принято:
+- JWT + refresh rotation + session revoke / reuse detection;
+- TLS на prod (Let's Encrypt);
+- rate limit на login;
+- валидация входа; bcrypt для паролей;
+- секреты вне git; CORS allowlist (prod: `https://beepru.ru`).
+
+Отложено / не в scope сейчас:
+- полноценный RBAC (`user`/`admin`/`service-account`);
+- `request_id` middleware;
+- rate limit на send-message;
+- E2EE.
 
 ---
 
 ## 11) Наблюдаемость и эксплуатация
 
-Как в OtusMS:
-- structured logging (`slog`) + `request_id`;
-- Prometheus метрики:
-  - `http_requests_total`
+- structured logging (`slog`);
+- Prometheus (сервисы отдают метрики; scrape в **local** compose):
+  - `http_requests_total`, `http_request_duration_seconds`
   - `ws_connections_active`
   - `message_send_total`
-  - `message_delivery_latency_seconds`
-  - `push_send_total`
   - `message_expired_total`
-- `/health` + readiness/liveness;
-- pprof/debug endpoint отдельно от клиентского API.
+- main-service metrics `:9100`, message-expirer `:9101`;
+- `/health`; в prod Prometheus в compose не обязателен;
+- `/debug` — только для разработки.
+
+Планировались, но не заведены: `message_delivery_latency_seconds`, `push_send_total`.
 
 ---
 
 ## 12) Docker и CI/CD
 
-1. `deploy/local/docker-compose.local.yml`:
-   - postgres
-   - redis (опционально)
-   - main-service
-   - auth-proxy
-   - notification-worker
-   - message-expirer
+### Local
+`deploy/local/docker-compose.local.yml`: postgres (`33432`), auth-proxy (`33081`), main-service (`8080`), notification-worker, message-expirer, prometheus (`9090`).  
+Управление: `task local:up|down|ps|logs|…`.
 
-2. GitHub Actions:
-   - lint (`golangci-lint`);
-   - unit tests (`go test -race -short ./...`);
-   - integration tests (postgres + api/ws сценарии);
-   - сборка docker-образов;
-   - деплой на staging/prod.
+### Prod
+`deploy/prod/docker-compose.prod.yml`: postgres, сервисы приложения, nginx, certbot, nginx-reloader.  
+Публичны только 80/443. Первичный TLS: `deploy/prod/init-ssl.sh`.
+
+### CI/CD
+- CI: lint + tests + build (`.github/workflows/ci.yml`);
+- CD: push в `main` → SSH на VPS → pull/build/up → nginx reload (`.github/workflows/cd.yml`).
+
+Известные нюансы: `docs/known-limitations-sprint-5.md` (порядок `set`/`rewrite` в nginx, reload после compose, нет `www`, seed в prod вручную).
 
 ---
 
 ## 13) План работ (по спринтам)
 
-### Sprint 1 (MVP backend foundation)
-- каркас репозитория и конфиги;
-- `main-service` + `/health`;
-- `main-service` + `/debug` для ручной отладки API/WS;
-- миграции `users/dialogs/messages`;
-- базовый auth (login/refresh/logout);
-- отправка/чтение сообщений через HTTP;
-- WebSocket подключение и `message_new`.
+### Sprint 1 — DONE (MVP backend)
+Каркас, main-service + `/debug`, миграции, JWT login/refresh/logout (тогда ещё `user_id`), HTTP chat, WS `message_new`, local Docker.
 
-Критерий: два пользователя могут обменяться сообщениями онлайн.
-Доп. критерий: ключевые backend-сценарии воспроизводимы через `/debug` без мобильного клиента.
+### Sprint 2 — DONE (уведомления + badge)
+Devices API, `notification_outbox`, worker (`dev-log`/`noop`), серверный unread, `badge_updated`. Реальный APNs/FCM не внедрялся — позже заменён стратегией Web Push.
 
-### Sprint 2 (уведомления + badge)
-- регистрация device token;
-- notification-worker + интеграция APNs/FCM;
-- серверный unread count;
-- синхронизация badge на клиенте.
+### Sprint 3 — DONE (Face ID + session hardening)
+`auth_sessions`, ротация refresh, revoke/reuse, Capacitor-клиент, secure storage + биометрия.
 
-Критерий: офлайн-пользователь получает push, бейдж корректен.
+### Sprint 4 — DONE (TTL + чат UI)
+TTL после read, `message-expirer`, `message_deleted`, rate-limit login, CORS, Prometheus, экран Chat, CI.
 
-### Sprint 3 (Face ID + session hardening)
-- secure storage токенов;
-- биометрический unlock на клиенте;
-- ротация refresh токена;
-- revoke сессий.
+### Sprint 5 — DONE (prod deploy)
+Домен `beepru.ru`, nginx+TLS, `deploy/prod/`, CD на VPS, prod-конфиги, Page Visibility для mark-read.
 
-Критерий: вход в приложение защищен биометрией, refresh flow безопасен.
+### Sprint 6 — IN PROGRESS (production polish / PWA)
+| Готово | Дальше |
+|--------|--------|
+| Контракты `api-sprint-6`, VAPID в `.env`, миграции `010`/`011`, `users/register`, login username/password | Web Push provider, VAPID endpoint + devices `web`, badge/badge_sync, WS heartbeat, `X-Device-ID`, PWA+клиент, prod `provider: webpush`, smoke iPhone |
 
-### Sprint 4 (TTL и удаление с экрана)
-- `expires_at` + политика TTL;
-- message-expirer;
-- событие `message_deleted` в реальном времени;
-- тесты на рассинхронизацию при reconnect.
+Критерий Sprint 6: PWA на Home Screen, Web Push на iOS 16.4+, актуальный badge, heartbeat, lint/tests green, VAPID не в git.
 
-Критерий: сообщения исчезают по таймеру у обоих пользователей и в БД.
+Детали: `docs/sprint-6-plan.md`, `docs/sprint-6-checklist.md`.
 
 ---
 
 ## 14) Риски и решения
 
-1. Push на iOS нестабилен в dev-окружении
-   - Решение: ранний staging с реальными APNs credentials.
+1. **Web Push только после «На экран Домой» (Safari)**  
+   → баннер установки PWA; проверка `'PushManager' in window`.
 
-2. Рассинхрон бейджа между клиентом и сервером
-   - Решение: сервер — единственный источник истины, периодическая re-sync.
+2. **Рассинхрон бейджа**  
+   → сервер — источник истины; пересчёт перед send; silent `badge_sync` на другие устройства.
 
-3. Потеря websocket-событий
-   - Решение: sequence id + догрузка пропущенных событий через REST при reconnect.
+3. **Потеря WS-событий / мёртвые соединения**  
+   → heartbeat (Sprint 6); backlog через REST; полноценный event-cursor/replay — known limitation (отложено).
 
-4. Удаление по TTL расходится между устройствами
-   - Решение: authoritative delete на сервере + обязательное `message_deleted` событие.
+4. **TTL расходится между устройствами**  
+   → authoritative delete на сервере + `message_deleted`.
+
+5. **Клиенты отстают от breaking auth**  
+   → обновление Debug UI / mobile в Sprint 6 §13–14; до этого smoke через curl.
+
+6. **Устаревший push endpoint**  
+   → HTTP 404/410 → деактивировать подписку в БД.
 
 ---
 
-## 15) Что делать прямо сейчас
+## 15) Что делать сейчас (фокус)
 
-1. Утвердить режим разработки клиента: сначала `debug web client`, затем мобильный UI.
-2. Зафиксировать auth-стратегию для MVP (локальный JWT или внешний IdP).
-3. Реализовать вертикальный срез:
-   - login -> send message -> receive message -> mark read -> unread count.
-4. Добавить удаление сообщений по TTL и событие `message_deleted`.
-5. После стабилизации API/WS подключать push, badge и Face ID в мобильном клиенте.
+1. Закрывать Sprint 6 по чеклисту с §7 (Web Push) вперёд — см. skill `sprint-work`.
+2. Не переоткрывать Sprint 1–5; infra-правки — поверх существующего `deploy/prod/`.
+3. Держать контракты в `docs/api-sprint-6.md` и чеклист синхронными с кодом.
+4. По завершении Sprint 6 — `docs/known-limitations-sprint-6.md` и статус checklist **DONE**.
+
+Операционные скиллы: `.cursor/skills/local-dev`, `prod-deploy`, `sprint-work`.
