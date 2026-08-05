@@ -42,9 +42,10 @@ func New(svc deviceService) *Handler {
 // --- Register ---
 
 type registerRequest struct {
-	Platform  string  `json:"platform"`
-	PushToken string  `json:"push_token"`
-	DeviceID  *string `json:"device_id"`
+	Platform         string          `json:"platform"`
+	PushToken        string          `json:"push_token"`
+	PushSubscription json.RawMessage `json:"push_subscription"`
+	DeviceID         *string         `json:"device_id"`
 }
 
 type deviceResponse struct {
@@ -79,23 +80,33 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := strings.TrimSpace(req.PushToken)
-	if token == "" {
-		respondError(w, http.StatusBadRequest, "invalid_argument", "push_token is required",
-			map[string]string{fieldField: fieldPushToken})
-		return
-	}
-	if len(token) > 1024 {
-		respondError(w, http.StatusBadRequest, "invalid_argument",
-			"push_token exceeds 1024 characters", map[string]string{fieldField: fieldPushToken})
-		return
+	d := store.Device{
+		ID:       uuid.NewString(),
+		UserID:   userID,
+		Platform: req.Platform,
 	}
 
-	d := store.Device{
-		ID:        uuid.NewString(),
-		UserID:    userID,
-		Platform:  req.Platform,
-		PushToken: token,
+	if req.Platform == "web" {
+		if len(req.PushSubscription) == 0 {
+			respondError(w, http.StatusBadRequest, "invalid_argument",
+				"push_subscription is required for platform=web",
+				map[string]string{fieldField: "push_subscription"})
+			return
+		}
+		d.PushSubscription = string(req.PushSubscription)
+	} else {
+		token := strings.TrimSpace(req.PushToken)
+		if token == "" {
+			respondError(w, http.StatusBadRequest, "invalid_argument", "push_token is required",
+				map[string]string{fieldField: fieldPushToken})
+			return
+		}
+		if len(token) > 1024 {
+			respondError(w, http.StatusBadRequest, "invalid_argument",
+				"push_token exceeds 1024 characters", map[string]string{fieldField: fieldPushToken})
+			return
+		}
+		d.PushToken = token
 	}
 
 	created, err := h.svc.Register(r.Context(), d)

@@ -23,11 +23,12 @@ const (
 	keyUsername      = "username"
 	testRefreshToken = "refresh_token"
 	testTokenValue   = "tok"
+	testAccessToken  = "acc"
 )
 
 type mockAuthSvc struct {
 	loginFn     func(ctx context.Context, username, password string, deviceID *string) (authsvc.TokenPair, error)
-	refreshFn   func(ctx context.Context, refreshToken string) (authsvc.TokenPair, error)
+	refreshFn   func(ctx context.Context, refreshToken string, deviceID *string) (authsvc.TokenPair, error)
 	logoutFn    func(ctx context.Context, refreshToken string) error
 	revokeAllFn func(ctx context.Context, userID string) error
 }
@@ -40,9 +41,9 @@ func (m *mockAuthSvc) Login(ctx context.Context, username, password string, devi
 	return authsvc.TokenPair{}, nil
 }
 
-func (m *mockAuthSvc) Refresh(ctx context.Context, refreshToken string) (authsvc.TokenPair, error) {
+func (m *mockAuthSvc) Refresh(ctx context.Context, refreshToken string, deviceID *string) (authsvc.TokenPair, error) {
 	if m.refreshFn != nil {
-		return m.refreshFn(ctx, refreshToken)
+		return m.refreshFn(ctx, refreshToken, deviceID)
 	}
 
 	return authsvc.TokenPair{}, nil
@@ -105,7 +106,7 @@ func TestLogin_Success(t *testing.T) {
 	svc := &mockAuthSvc{
 		loginFn: func(_ context.Context, _, _ string, _ *string) (authsvc.TokenPair, error) {
 			return authsvc.TokenPair{
-				AccessToken:  "acc",
+				AccessToken:  testAccessToken,
 				RefreshToken: "ref",
 				SessionID:    "sess-1",
 				ExpiresIn:    900,
@@ -124,7 +125,7 @@ func TestLogin_Success(t *testing.T) {
 	}
 
 	resp := decodeTokenResponse(t, w.Body)
-	if resp["access_token"] != "acc" {
+	if resp["access_token"] != testAccessToken {
 		t.Errorf("access_token mismatch: %v", resp["access_token"])
 	}
 	if resp["session_id"] != "sess-1" {
@@ -224,7 +225,7 @@ func TestRefresh_Success(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockAuthSvc{
-		refreshFn: func(_ context.Context, _ string) (authsvc.TokenPair, error) {
+		refreshFn: func(_ context.Context, _ string, _ *string) (authsvc.TokenPair, error) {
 			return authsvc.TokenPair{AccessToken: "new-acc", RefreshToken: "new-ref", SessionID: "sess-2"}, nil
 		},
 	}
@@ -258,7 +259,7 @@ func TestRefresh_SessionRevoked_Returns401WithCorrectCode(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockAuthSvc{
-		refreshFn: func(_ context.Context, _ string) (authsvc.TokenPair, error) {
+		refreshFn: func(_ context.Context, _ string, _ *string) (authsvc.TokenPair, error) {
 			return authsvc.TokenPair{}, authsvc.ErrSessionRevoked
 		},
 	}
@@ -281,7 +282,7 @@ func TestRefresh_SessionExpired_Returns401WithCorrectCode(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockAuthSvc{
-		refreshFn: func(_ context.Context, _ string) (authsvc.TokenPair, error) {
+		refreshFn: func(_ context.Context, _ string, _ *string) (authsvc.TokenPair, error) {
 			return authsvc.TokenPair{}, authsvc.ErrSessionExpired
 		},
 	}
@@ -304,7 +305,7 @@ func TestRefresh_SessionCompromised_Returns401WithCorrectCode(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockAuthSvc{
-		refreshFn: func(_ context.Context, _ string) (authsvc.TokenPair, error) {
+		refreshFn: func(_ context.Context, _ string, _ *string) (authsvc.TokenPair, error) {
 			return authsvc.TokenPair{}, authsvc.ErrSessionCompromised
 		},
 	}
@@ -320,6 +321,58 @@ func TestRefresh_SessionCompromised_Returns401WithCorrectCode(t *testing.T) {
 	}
 	if code := decodeErrorCode(t, w.Body); code != "session_compromised" {
 		t.Errorf("error code: want session_compromised, got %q", code)
+	}
+}
+
+// --- Device binding ---
+
+func TestRefresh_WrongDeviceID_Returns403(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthSvc{
+		refreshFn: func(_ context.Context, _ string, _ *string) (authsvc.TokenPair, error) {
+			return authsvc.TokenPair{}, authsvc.ErrDeviceMismatch
+		},
+	}
+
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/refresh",
+		jsonBody(map[string]string{testRefreshToken: testTokenValue}))
+	r.Header.Set("X-Device-ID", "device-B")
+	w := httptest.NewRecorder()
+
+	authhandler.New(svc).Refresh(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status: want 403, got %d", w.Code)
+	}
+	if code := decodeErrorCode(t, w.Body); code != "device_mismatch" {
+		t.Errorf("error code: want device_mismatch, got %q", code)
+	}
+}
+
+func TestRefresh_CorrectDeviceID_Returns200(t *testing.T) {
+	t.Parallel()
+
+	var gotDeviceID *string
+	svc := &mockAuthSvc{
+		refreshFn: func(_ context.Context, _ string, deviceID *string) (authsvc.TokenPair, error) {
+			gotDeviceID = deviceID
+			return authsvc.TokenPair{AccessToken: testAccessToken, RefreshToken: "ref"}, nil
+		},
+	}
+
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/refresh",
+		jsonBody(map[string]string{testRefreshToken: testTokenValue}))
+	r.Header.Set("X-Device-ID", "device-A")
+	w := httptest.NewRecorder()
+
+	authhandler.New(svc).Refresh(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status: want 200, got %d", w.Code)
+	}
+	if gotDeviceID == nil || *gotDeviceID != "device-A" {
+		t.Errorf("expected deviceID=device-A to be passed to service, got %v", gotDeviceID)
 	}
 }
 

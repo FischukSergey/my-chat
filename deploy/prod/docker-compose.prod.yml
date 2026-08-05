@@ -42,6 +42,9 @@ services:
     <<: [*common-labels, *restart, *depends-postgres]
     command: ["-config", "configs/config.main-service.prod.yaml"]
     env_file: ../../.env
+    environment:
+      # VAPID public key для endpoint GET /api/v1/push/vapid-public-key
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 15s
@@ -77,6 +80,11 @@ services:
     <<: [*common-labels, *restart, *depends-postgres]
     command: ["-config", "configs/config.notification-worker.prod.yaml"]
     env_file: ../../.env
+    environment:
+      # VAPID ключи для Web Push провайдера
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT}
     # Pure worker — нет HTTP-сервера, проверяем что процесс жив
     healthcheck:
       test: ["CMD", "test", "-f", "/proc/1/status"]

@@ -203,7 +203,7 @@ func TestRegister_ServiceError(t *testing.T) {
 		},
 	}
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/register",
-		jsonBody(t, map[string]string{fieldPlatform: "web", fieldPushTokenKey: testPushToken}))
+		jsonBody(t, map[string]string{fieldPlatform: platformIOS, fieldPushTokenKey: testPushToken}))
 	req = withUserID(req, "user-a")
 	rec := httptest.NewRecorder()
 
@@ -316,11 +316,11 @@ func TestUnregister_ServiceError(t *testing.T) {
 	}
 }
 
-// TestRegister_AllPlatformsAccepted ensures ios/android/web are valid.
-func TestRegister_AllPlatformsAccepted(t *testing.T) {
+// TestRegister_TokenPlatformsAccepted ensures ios and android are valid with push_token.
+func TestRegister_TokenPlatformsAccepted(t *testing.T) {
 	t.Parallel()
 
-	for _, platform := range []string{"ios", "android", "web"} {
+	for _, platform := range []string{"ios", "android"} {
 		t.Run(platform, func(t *testing.T) {
 			t.Parallel()
 
@@ -343,5 +343,53 @@ func TestRegister_AllPlatformsAccepted(t *testing.T) {
 				t.Errorf("platform %q: expected 200, got %d: %s", platform, rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestRegister_Web_WithPushSubscription(t *testing.T) {
+	t.Parallel()
+
+	sub := map[string]any{
+		"endpoint": "https://push.example.com/subscribe/abc123",
+		"keys": map[string]string{
+			"p256dh": "BNcRdreALRFXTkOOUHK1EtK2wtWelNhztlfMLU4ZN_nNq",
+			"auth":   "tBHItJI5svbpez7KI4CCXg",
+		},
+	}
+	svc := &mockDeviceSvc{
+		registerFn: func(_ context.Context, d store.Device) (store.Device, error) {
+			d.ID = "dev-web-1"
+			d.Enabled = true
+			d.LastSeenAt = time.Now()
+			return d, nil
+		},
+	}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/register",
+		jsonBody(t, map[string]any{fieldPlatform: "web", "push_subscription": sub}))
+	req = withUserID(req, "user-a")
+	rec := httptest.NewRecorder()
+
+	newHandler(svc).Register(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRegister_Web_MissingPushSubscription(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/devices/register",
+		jsonBody(t, map[string]string{fieldPlatform: "web", fieldPushTokenKey: testPushToken}))
+	req = withUserID(req, "user-a")
+	rec := httptest.NewRecorder()
+
+	newHandler(&mockDeviceSvc{}).Register(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if code := decodeError(t, rec.Body); code != "invalid_argument" {
+		t.Errorf("expected code=invalid_argument, got %q", code)
 	}
 }

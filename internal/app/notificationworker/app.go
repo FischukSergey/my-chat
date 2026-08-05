@@ -69,6 +69,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	outboxRepo := store.NewNotificationOutboxRepository(postgresStore)
 	deviceRepo := store.NewDeviceRepository(postgresStore)
+	receiptRepo := store.NewReceiptRepository(postgresStore)
 
 	provider := buildProvider(cfg.NotificationWorker.Provider, cfg.NotificationWorker, log)
 	workerCfg := buildWorkerConfig(cfg.NotificationWorker)
@@ -80,7 +81,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		slog.Duration("backoff_base", workerCfg.BackoffBase),
 	)
 
-	w := notification.NewWorker(outboxRepo, deviceRepo, provider, log, workerCfg)
+	w := notification.NewWorker(outboxRepo, deviceRepo, receiptRepo, provider, log, workerCfg)
 
 	return &App{
 		log:        log,

@@ -1,13 +1,14 @@
 /**
  * main.ts — точка входа. Управляет состояниями экранов:
  *
- *   [login]  ← нет refresh token / session_compromised / logout
+ *   [register] ← кнопка «Зарегистрироваться» на экране Login
+ *   [login]    ← нет refresh token / session_compromised / logout
  *      ↓ после login
- *   [unlock] ← есть refresh token (cold start)
+ *   [unlock]   ← есть refresh token (cold start)
  *      ↓ биометрия + refresh
- *   [home]   ← есть актуальный access token
+ *   [home]     ← есть актуальный access token
  *      ↓ showChat(dialogId)
- *   [chat]   ← открытый диалог
+ *   [chat]     ← открытый диалог
  */
 
 import {
@@ -25,9 +26,13 @@ import {
   apiLogin,
   apiLogout,
   apiRefresh,
+  apiRegister,
+  extractUserIdFromJwt,
   getMessages,
   getUnreadCount,
+  getVapidPublicKey,
   markRead,
+  registerDevice,
   sendMessage,
   SessionCompromisedError,
   SessionExpiredError,
@@ -43,10 +48,12 @@ function el<T extends HTMLElement>(id: string): T {
   return e as T;
 }
 
-type ScreenName = "login" | "unlock" | "home" | "chat";
+type ScreenName = "login" | "register" | "unlock" | "home" | "chat";
+
+const ALL_SCREENS: ScreenName[] = ["login", "register", "unlock", "home", "chat"];
 
 function showScreen(name: ScreenName): void {
-  for (const s of ["login", "unlock", "home", "chat"] as const) {
+  for (const s of ALL_SCREENS) {
     document.getElementById(s)?.classList.toggle("active", s === name);
   }
   // Скрываем статус-бар и лог-панель в режиме чата
@@ -66,6 +73,18 @@ function log(msg: string): void {
   const l = el<HTMLTextAreaElement>("log");
   l.value += `[${new Date().toISOString()}] ${msg}\n`;
   l.scrollTop = l.scrollHeight;
+}
+
+// --- Сохранение username в localStorage (не секрет) ---
+
+const LS_USERNAME = "my_chat_username";
+
+function saveUsername(username: string): void {
+  localStorage.setItem(LS_USERNAME, username);
+}
+
+function getSavedUsername(): string {
+  return localStorage.getItem(LS_USERNAME) ?? "";
 }
 
 // --- WebSocket ---
@@ -345,7 +364,6 @@ async function loadChatHistory(): Promise<void> {
     const now = Date.now();
     for (const msg of messages) {
       // Сообщение уже истекло по TTL — не рендерим.
-      // message_deleted от сервера либо уже пришёл, либо придёт в течение poll-интервала.
       if (msg.expires_at && new Date(msg.expires_at).getTime() <= now) {
         continue;
       }
@@ -353,10 +371,8 @@ async function loadChatHistory(): Promise<void> {
       const bubbleEl = appendBubble(msg);
 
       if (msg.expires_at) {
-        // TTL уже запущен — показываем обратный отсчёт (сообщение ещё не истекло)
         startTTLTimer(msg.id, msg.expires_at, bubbleEl);
       } else if (msg.sender_id !== currentUserId) {
-        // Входящее непрочитанное — помечаем прочитанным если вкладка видима
         tryMarkRead(msg.id);
       }
     }
@@ -401,6 +417,9 @@ async function loadHome(): Promise<void> {
   // Подключаем WS если ещё не подключены
   const token = await getAccessToken();
   if (token) connectWS(token);
+
+  // Подписка на Web Push (best-effort, не блокирует загрузку home)
+  void subscribePush();
 
   try {
     const count = await getUnreadCount();
@@ -541,38 +560,82 @@ function showLoginScreen(): void {
   disconnectWS();
   showScreen("login");
   setStatus("");
-  // Восстановить последний user_id
-  getSavedUserId()
-    .then((id) => {
-      if (id) el<HTMLInputElement>("user-id-input").value = id;
-    })
-    .catch(() => undefined);
+  // Восстановить последний username
+  const saved = getSavedUsername();
+  if (saved) {
+    const usernameInput = document.getElementById("username-input") as HTMLInputElement | null;
+    if (usernameInput) usernameInput.value = saved;
+  }
 }
 
 async function handleLogin(): Promise<void> {
-  const userIdInput = el<HTMLInputElement>("user-id-input");
-  const userId = userIdInput.value.trim();
-  if (!userId) {
-    setStatus("Введите user_id", true);
-    return;
-  }
+  const usernameInput = el<HTMLInputElement>("username-input");
+  const passwordInput = el<HTMLInputElement>("password-input");
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value;
+
+  if (!username) { setStatus("Введите имя пользователя", true); return; }
+  if (!password) { setStatus("Введите пароль", true); return; }
 
   setStatus("Выполняется вход...");
-  log(`login: ${userId}`);
+  log(`login: ${username}`);
 
   try {
-    const result = await apiLogin(userId);
+    const result = await apiLogin(username, password);
+    const userId = extractUserIdFromJwt(result.access_token);
+
     await saveTokens({
       accessToken: result.access_token,
       refreshToken: result.refresh_token,
       sessionId: result.session_id,
       userId,
     });
-    log(`login OK, session: ${result.session_id}`);
+    saveUsername(username);
+    passwordInput.value = "";
+    log(`login OK, user: ${userId}, session: ${result.session_id}`);
     await loadHome();
   } catch (err) {
     setStatus(String(err), true);
     log(`ERR login: ${String(err)}`);
+  }
+}
+
+// --- Экран: Register ---
+
+function showRegisterScreen(): void {
+  showScreen("register");
+  setStatus("");
+}
+
+async function handleRegister(): Promise<void> {
+  const usernameInput = el<HTMLInputElement>("reg-username-input");
+  const passwordInput = el<HTMLInputElement>("reg-password-input");
+  const confirmInput  = el<HTMLInputElement>("reg-confirm-input");
+
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value;
+  const confirm  = confirmInput.value;
+
+  if (!username) { setStatus("Введите имя пользователя", true); return; }
+  if (password.length < 8) { setStatus("Пароль должен содержать не менее 8 символов", true); return; }
+  if (password !== confirm) { setStatus("Пароли не совпадают", true); return; }
+
+  setStatus("Создание аккаунта...");
+  log(`register: ${username}`);
+
+  try {
+    await apiRegister(username, password);
+    log(`register OK: ${username}`);
+    // После успешной регистрации — переход на Login с предзаполненным username
+    passwordInput.value = "";
+    confirmInput.value  = "";
+    const loginInput = document.getElementById("username-input") as HTMLInputElement | null;
+    if (loginInput) loginInput.value = username;
+    setStatus("Аккаунт создан! Войдите в систему.");
+    showScreen("login");
+  } catch (err) {
+    setStatus(String(err), true);
+    log(`ERR register: ${String(err)}`);
   }
 }
 
@@ -583,7 +646,6 @@ async function handleLogout(): Promise<void> {
   setStatus("Выход...");
   log("logout...");
   try {
-    // Получаем refresh с биометрией для server-side revoke
     const rt = await getRefreshToken("Подтвердите выход");
     if (rt) {
       await apiLogout(rt);
@@ -598,13 +660,156 @@ async function handleLogout(): Promise<void> {
   }
 }
 
+// --- Web Push ---
+
+/**
+ * Конвертирует base64url VAPID public key в Uint8Array для pushManager.subscribe.
+ */
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const buffer = new ArrayBuffer(raw.length);
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < raw.length; i++) {
+    bytes[i] = raw.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Запрашивает разрешение и подписывается на Web Push.
+ * Best-effort: ошибки логируются, но не останавливают загрузку home.
+ */
+async function subscribePush(): Promise<void> {
+  // Fallback: iOS < 16.4 и другие браузеры без Push API
+  if (!("PushManager" in window)) {
+    log("Push API недоступен в этом браузере (iOS < 16.4?)");
+    return;
+  }
+
+  if (!("serviceWorker" in navigator)) return;
+
+  try {
+    // Запрашиваем разрешение на уведомления
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      log(`Push: разрешение не получено (${permission})`);
+      return;
+    }
+
+    const reg = await navigator.serviceWorker.ready;
+
+    // Если уже подписаны — не пересоздаём подписку
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) {
+      log("Push: уже подписаны, обновляем регистрацию устройства");
+      await registerDevice("web", existing.toJSON());
+      return;
+    }
+
+    const vapidKey = await getVapidPublicKey();
+    if (!vapidKey) {
+      log("Push: VAPID ключ не получен, подписка пропущена");
+      return;
+    }
+
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidKey),
+    });
+
+    await registerDevice("web", sub.toJSON());
+    log("Push: подписка успешна");
+  } catch (err) {
+    log(`Push: ошибка подписки — ${String(err)}`);
+  }
+}
+
+// --- PWA: Service Worker + Install banner ---
+
+let deferredInstallPrompt: BeforeInstallPromptEvent | null = null;
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  readonly userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+
+function initPWA(): void {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((reg) => { log(`SW зарегистрирован: ${reg.scope}`); })
+      .catch((err) => { log(`SW ошибка регистрации: ${String(err)}`); });
+
+    // Обработка postMessage от SW (open_dialog при клике на уведомление)
+    navigator.serviceWorker.addEventListener("message", (ev) => {
+      const msg = ev.data as { type?: string; dialog_id?: string } | undefined;
+      if (msg?.type === "open_dialog" && msg.dialog_id) {
+        void showChat(msg.dialog_id);
+      }
+    });
+  }
+
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches;
+  if (isStandalone) return;
+
+  window.addEventListener("beforeinstallprompt", (ev) => {
+    ev.preventDefault();
+    deferredInstallPrompt = ev as BeforeInstallPromptEvent;
+    showInstallBanner();
+  });
+
+  window.addEventListener("appinstalled", () => {
+    hideInstallBanner();
+    deferredInstallPrompt = null;
+    log("PWA установлена");
+  });
+}
+
+function showInstallBanner(): void {
+  document.getElementById("install-banner")?.classList.add("visible");
+}
+
+function hideInstallBanner(): void {
+  document.getElementById("install-banner")?.classList.remove("visible");
+}
+
+function initInstallBannerButtons(): void {
+  document.getElementById("btn-install")?.addEventListener("click", () => {
+    if (!deferredInstallPrompt) return;
+    hideInstallBanner();
+    void deferredInstallPrompt.prompt().then(() => {
+      void deferredInstallPrompt!.userChoice.then((choice) => {
+        log(`PWA install: ${choice.outcome}`);
+        deferredInstallPrompt = null;
+      });
+    });
+  });
+
+  document.getElementById("btn-install-dismiss")?.addEventListener("click", () => {
+    hideInstallBanner();
+  });
+}
+
 // --- Инициализация ---
 
 async function init(): Promise<void> {
   // Login screen
   el("btn-login").addEventListener("click", () => void handleLogin());
-  el("user-id-input").addEventListener("keydown", (e) => {
+  el("username-input").addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") el<HTMLInputElement>("password-input").focus();
+  });
+  el("password-input").addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Enter") void handleLogin();
+  });
+  el("btn-go-register").addEventListener("click", showRegisterScreen);
+
+  // Register screen
+  el("btn-register").addEventListener("click", () => void handleRegister());
+  el("btn-back-to-login").addEventListener("click", showLoginScreen);
+  el("reg-confirm-input").addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") void handleRegister();
   });
 
   // Unlock screen
@@ -637,6 +842,9 @@ async function init(): Promise<void> {
     }
   });
 
+  // Кнопки PWA-баннера
+  initInstallBannerButtons();
+
   // Проверка biometric availability
   const biometricOk = await isBiometricAvailable();
   log(`biometric available: ${biometricOk}`);
@@ -662,3 +870,6 @@ if (document.readyState === "loading") {
 } else {
   void init();
 }
+
+// PWA: Service Worker можно зарегистрировать сразу — не зависит от DOM
+initPWA();

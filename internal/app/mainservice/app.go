@@ -16,6 +16,7 @@ import (
 	debughandler "my-chat/internal/handlers/debug"
 	devicehandler "my-chat/internal/handlers/device"
 	"my-chat/internal/handlers/health"
+	pushhandler "my-chat/internal/handlers/push"
 	userhandler "my-chat/internal/handlers/user"
 	wshandler "my-chat/internal/handlers/ws"
 	"my-chat/internal/hub"
@@ -105,6 +106,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	chatHandler := chathandler.New(chatSvc)
 	deviceHandler := devicehandler.New(deviceSvc)
 	userHandler := userhandler.New(userSvc)
+	vapidHandler := pushhandler.New(cfg.NotificationWorker.WebPush.VAPIDPublicKey)
 	wsHandler := wshandler.New(connHub, cfg.JWT.Secret, log)
 	wsDelivery := wsdelivery.New(wsOutboxRepo, connHub, log, wsDeliveryBatchSize)
 
@@ -117,6 +119,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	// Публичные маршруты (без auth middleware).
 	router.Post("/api/v1/users/register", userHandler.Register)
+	router.Get("/api/v1/push/vapid-public-key", vapidHandler.VapidPublicKey)
 
 	router.Group(func(r chi.Router) {
 		r.Use(mw.Authenticate(cfg.JWT.Secret))
@@ -207,7 +210,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Device-ID")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

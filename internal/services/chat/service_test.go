@@ -894,3 +894,57 @@ func TestMarkRead_SendsBadgeUpdatedToReader(t *testing.T) {
 		t.Errorf("expected reason=message_read, got %v", data["reason"])
 	}
 }
+
+func TestMarkRead_EnqueuesBadgeSyncForReader(t *testing.T) {
+	t.Parallel()
+
+	var enqueuedTasks []store.NotificationOutbox
+
+	svc := chat.NewService(
+		&mockDialogRepo{},
+		&mockMessageRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
+				return store.Message{
+					ID:       msgID1,
+					DialogID: "d1",
+					SenderID: userA,
+					Body:     msgBody,
+				}, nil
+			},
+		},
+		&mockReceiptRepo{
+			markReadFn: func(_ context.Context, _, _ string, _ time.Time) error { return nil },
+		},
+		noopNotifier(),
+		&mockOutbox{
+			enqueueFn: func(_ context.Context, task store.NotificationOutbox) error {
+				enqueuedTasks = append(enqueuedTasks, task)
+				return nil
+			},
+		},
+		noTTL,
+	)
+
+	if err := svc.MarkRead(context.Background(), msgID1, userB, time.Now()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var badgeSyncTasks []store.NotificationOutbox
+	for _, task := range enqueuedTasks {
+		if task.EventType == "badge_sync" {
+			badgeSyncTasks = append(badgeSyncTasks, task)
+		}
+	}
+
+	if len(badgeSyncTasks) == 0 {
+		t.Fatal("expected at least one badge_sync outbox task, got none")
+	}
+
+	task := badgeSyncTasks[0]
+	if task.UserID != userB {
+		t.Errorf("expected badge_sync task for reader %q, got user_id=%q", userB, task.UserID)
+	}
+	if task.DedupKey == "" {
+		t.Error("expected non-empty dedup_key")
+	}
+}

@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#007aff" />
+  <link rel="manifest" href="/manifest.json" />
   <title>my-chat</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -50,12 +52,14 @@
     .subtitle { color: var(--muted); font-size: 15px; margin-bottom: 28px; }
 
     label { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-bottom: 4px; margin-top: 16px; }
-    input[type="text"] {
+    input[type="text"],
+    input[type="password"] {
       width: 100%; padding: 12px 14px; border: 1px solid #ddd;
       border-radius: 10px; font-size: 16px; outline: none;
       transition: border-color .2s;
     }
-    input[type="text"]:focus { border-color: var(--primary); }
+    input[type="text"]:focus,
+    input[type="password"]:focus { border-color: var(--primary); }
 
     button {
       width: 100%; padding: 14px; border: none; border-radius: 12px;
@@ -208,6 +212,30 @@
       background: var(--card);
       flex-shrink: 0;
     }
+
+    /* PWA install banner */
+    #install-banner {
+      display: none;
+      position: fixed;
+      bottom: env(safe-area-inset-bottom, 0);
+      left: 0; right: 0;
+      background: var(--card);
+      box-shadow: 0 -2px 16px rgba(0,0,0,.1);
+      padding: 14px 20px;
+      z-index: 100;
+      align-items: center;
+      gap: 12px;
+    }
+    #install-banner.visible { display: flex; }
+    #install-banner img { width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; }
+    .install-banner-text { flex: 1; }
+    .install-banner-text strong { display: block; font-size: 15px; }
+    .install-banner-text span { font-size: 13px; color: var(--muted); }
+    #btn-install { width: auto; padding: 10px 18px; margin: 0; font-size: 15px; }
+    #btn-install-dismiss {
+      background: none; border: none; width: 32px; height: 32px; padding: 0; margin: 0;
+      font-size: 20px; color: var(--muted); flex-shrink: 0; cursor: pointer;
+    }
     #msg-input {
       flex: 1;
       padding: 10px 14px;
@@ -240,17 +268,63 @@
         <h1>my-chat</h1>
         <p class="subtitle">Войдите чтобы продолжить</p>
 
-        <label for="user-id-input">User ID</label>
+        <label for="username-input">Имя пользователя</label>
         <input
-          id="user-id-input"
+          id="username-input"
           type="text"
-          placeholder="11111111-1111-1111-1111-111111111111"
-          autocomplete="off"
+          placeholder="username"
+          autocomplete="username"
           autocapitalize="none"
           spellcheck="false"
         />
 
+        <label for="password-input">Пароль</label>
+        <input
+          id="password-input"
+          type="password"
+          placeholder="••••••••"
+          autocomplete="current-password"
+        />
+
         <button id="btn-login" class="btn-primary">Войти</button>
+        <button id="btn-go-register" class="btn-secondary">Зарегистрироваться</button>
+      </div>
+    </div>
+
+    <!-- ===== Register screen ===== -->
+    <div id="register" class="screen">
+      <div class="card">
+        <h1>my-chat</h1>
+        <p class="subtitle">Создайте аккаунт</p>
+
+        <label for="reg-username-input">Имя пользователя</label>
+        <input
+          id="reg-username-input"
+          type="text"
+          placeholder="username"
+          autocomplete="username"
+          autocapitalize="none"
+          spellcheck="false"
+        />
+
+        <label for="reg-password-input">Пароль</label>
+        <input
+          id="reg-password-input"
+          type="password"
+          placeholder="••••••••"
+          autocomplete="new-password"
+        />
+
+        <label for="reg-confirm-input">Подтвердите пароль</label>
+        <input
+          id="reg-confirm-input"
+          type="password"
+          placeholder="••••••••"
+          autocomplete="new-password"
+        />
+
+        <button id="btn-register" class="btn-primary">Создать аккаунт</button>
+        <button id="btn-back-to-login" class="btn-secondary">Назад ко входу</button>
       </div>
     </div>
 
@@ -317,6 +391,17 @@
       <textarea id="log" readonly></textarea>
     </details>
 
+  </div>
+
+  <!-- PWA install banner -->
+  <div id="install-banner" role="banner" aria-label="Установить приложение">
+    <img src="/icons/icon-192.png" alt="MyChat" />
+    <div class="install-banner-text">
+      <strong>Добавить в экран «Домой»</strong>
+      <span>Установите MyChat для быстрого доступа</span>
+    </div>
+    <button id="btn-install" class="btn-primary">Установить</button>
+    <button id="btn-install-dismiss" aria-label="Закрыть">✕</button>
   </div>
 
   <script type="module" src="./main.ts"></script>

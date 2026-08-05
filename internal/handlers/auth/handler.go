@@ -12,7 +12,7 @@ import (
 
 type authService interface {
 	Login(ctx context.Context, username, password string, deviceID *string) (authsvc.TokenPair, error)
-	Refresh(ctx context.Context, refreshToken string) (authsvc.TokenPair, error)
+	Refresh(ctx context.Context, refreshToken string, deviceID *string) (authsvc.TokenPair, error)
 	Logout(ctx context.Context, refreshToken string) error
 	RevokeAll(ctx context.Context, userID string) error
 }
@@ -50,7 +50,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pair, err := h.svc.Login(r.Context(), req.Username, req.Password, nil)
+	pair, err := h.svc.Login(r.Context(), req.Username, req.Password, deviceIDFromRequest(r))
 	if err != nil {
 		switch {
 		case errors.Is(err, authsvc.ErrInvalidCredentials):
@@ -80,7 +80,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pair, err := h.svc.Refresh(r.Context(), req.RefreshToken)
+	pair, err := h.svc.Refresh(r.Context(), req.RefreshToken, deviceIDFromRequest(r))
 	if err != nil {
 		respondAuthError(w, err)
 		return
@@ -132,9 +132,20 @@ func respondAuthError(w http.ResponseWriter, err error) {
 		respondError(w, http.StatusUnauthorized, "session_compromised", "token reuse detected, all sessions revoked")
 	case errors.Is(err, authsvc.ErrSessionRevoked):
 		respondError(w, http.StatusUnauthorized, "session_revoked", "session has been revoked")
+	case errors.Is(err, authsvc.ErrDeviceMismatch):
+		respondError(w, http.StatusForbidden, "device_mismatch", "refresh token belongs to a different device")
 	default:
 		respondError(w, http.StatusInternalServerError, "internal", "internal server error")
 	}
+}
+
+// deviceIDFromRequest возвращает значение заголовка X-Device-ID или nil, если заголовок отсутствует.
+func deviceIDFromRequest(r *http.Request) *string {
+	v := r.Header.Get("X-Device-ID")
+	if v == "" {
+		return nil
+	}
+	return &v
 }
 
 func respondJSON(w http.ResponseWriter, status int, payload any) {

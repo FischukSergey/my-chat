@@ -31,6 +31,10 @@ type deviceRepository interface {
 	DisableByID(ctx context.Context, id string) error
 }
 
+type unreadRepository interface {
+	CountUnread(ctx context.Context, userID string) (int, error)
+}
+
 // Config задаёт параметры работы Worker.
 type Config struct {
 	BatchSize   int
@@ -42,6 +46,7 @@ type Config struct {
 type Worker struct {
 	outbox   outboxRepository
 	devices  deviceRepository
+	unread   unreadRepository
 	provider push.Provider
 	log      *slog.Logger
 	cfg      Config
@@ -51,6 +56,7 @@ type Worker struct {
 func NewWorker(
 	outbox outboxRepository,
 	devices deviceRepository,
+	unread unreadRepository,
 	provider push.Provider,
 	log *slog.Logger,
 	cfg Config,
@@ -58,6 +64,7 @@ func NewWorker(
 	return &Worker{
 		outbox:   outbox,
 		devices:  devices,
+		unread:   unread,
 		provider: provider,
 		log:      log,
 		cfg:      cfg,
@@ -156,6 +163,18 @@ func (w *Worker) processTask(ctx context.Context, task store.NotificationOutbox)
 		return
 	}
 
+	// Запрашиваем актуальный unread_count из БД — он мог измениться с момента создания задачи.
+	badge := payload.UnreadCount
+	if actualUnread, unreadErr := w.unread.CountUnread(ctx, task.UserID); unreadErr != nil {
+		w.log.Warn("не удалось получить актуальный unread_count, используем значение из payload",
+			slog.String("task_id", task.ID),
+			slog.String("user_id", task.UserID),
+			slog.String("error", unreadErr.Error()),
+		)
+	} else {
+		badge = actualUnread
+	}
+
 	var sendErr error
 	for _, device := range devices {
 		msg := push.Message{
@@ -167,7 +186,7 @@ func (w *Worker) processTask(ctx context.Context, task store.NotificationOutbox)
 			SenderID:    payload.SenderID,
 			Preview:     payload.Preview,
 			UnreadCount: payload.UnreadCount,
-			Badge:       payload.UnreadCount, // Sprint 2: badge == unread_count
+			Badge:       badge,
 			DedupKey:    payload.DedupKey,
 		}
 		if err = w.provider.Send(ctx, msg); err != nil {

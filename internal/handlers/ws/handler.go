@@ -68,11 +68,8 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	ctx := r.Context()
-	for {
-		_, _, err := rawConn.Read(ctx)
-		if err != nil {
-			return
-		}
+	if err := hub.RunConn(ctx, rawConn, hub.DefaultConnConfig()); err != nil {
+		h.logger.Debug("ws conn ended", slog.String("user_id", userID), slog.Any("err", err))
 	}
 }
 

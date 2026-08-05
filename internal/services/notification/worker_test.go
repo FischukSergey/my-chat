@@ -77,6 +77,15 @@ func (f *fakeDevices) DisableByID(_ context.Context, id string) error {
 	return nil
 }
 
+type fakeUnread struct {
+	count int
+	err   error
+}
+
+func (f *fakeUnread) CountUnread(_ context.Context, _ string) (int, error) {
+	return f.count, f.err
+}
+
 // makeTask строит тестовую outbox-задачу с заданным числом attempt.
 func makeTask(t *testing.T, userID string, attempt int) store.NotificationOutbox {
 	t.Helper()
@@ -105,8 +114,17 @@ func makeTask(t *testing.T, userID string, attempt int) store.NotificationOutbox
 }
 
 func newWorker(outbox *fakeOutbox, devices *fakeDevices, provider push.Provider) *notification.Worker {
+	return newWorkerWithUnread(outbox, devices, &fakeUnread{count: 0}, provider)
+}
+
+func newWorkerWithUnread(
+	outbox *fakeOutbox,
+	devices *fakeDevices,
+	unread *fakeUnread,
+	provider push.Provider,
+) *notification.Worker {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	return notification.NewWorker(outbox, devices, provider, log, notification.Config{
+	return notification.NewWorker(outbox, devices, unread, provider, log, notification.Config{
 		BatchSize:   10,
 		MaxAttempts: 3,
 		BackoffBase: 10 * time.Second,
@@ -225,6 +243,61 @@ func TestWorker_NoDevices_MarksSentWithoutCallingProvider(t *testing.T) {
 	}
 	if len(outbox.sentIDs) != 1 || outbox.sentIDs[0] != task.ID {
 		t.Errorf("expected task marked sent, got sentIDs=%v", outbox.sentIDs)
+	}
+}
+
+func TestWorker_BadgeEqualsActualUnreadCount(t *testing.T) {
+	userID := uuid.NewString()
+	task := makeTask(t, userID, 1) // unread_count в payload = 1
+
+	outbox := &fakeOutbox{tasks: []store.NotificationOutbox{task}}
+	devices := &fakeDevices{devices: map[string][]store.Device{
+		userID: {{ID: uuid.NewString(), UserID: userID, Platform: platformIOSTest, PushToken: pushTokenTest, Enabled: true}},
+	}}
+	unread := &fakeUnread{count: 7} // реальный unread_count отличается от payload
+
+	var gotBadge int
+	provider := push.NewNoopProvider()
+	provider.SendFunc = func(_ context.Context, msg push.Message) error {
+		gotBadge = msg.Badge
+		return nil
+	}
+
+	w := newWorkerWithUnread(outbox, devices, unread, provider)
+	_, err := w.RunOnce(context.Background())
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if gotBadge != 7 {
+		t.Errorf("expected Badge=7 (actual unread), got %d", gotBadge)
+	}
+}
+
+func TestWorker_BadgeFallsBackToPayloadOnUnreadError(t *testing.T) {
+	userID := uuid.NewString()
+	task := makeTask(t, userID, 1) // unread_count в payload = 1
+
+	outbox := &fakeOutbox{tasks: []store.NotificationOutbox{task}}
+	devices := &fakeDevices{devices: map[string][]store.Device{
+		userID: {{ID: uuid.NewString(), UserID: userID, Platform: platformIOSTest, PushToken: pushTokenTest, Enabled: true}},
+	}}
+	unread := &fakeUnread{err: errors.New("db error")}
+
+	var gotBadge int
+	provider := push.NewNoopProvider()
+	provider.SendFunc = func(_ context.Context, msg push.Message) error {
+		gotBadge = msg.Badge
+		return nil
+	}
+
+	w := newWorkerWithUnread(outbox, devices, unread, provider)
+	_, err := w.RunOnce(context.Background())
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	// При ошибке CountUnread — badge из payload (1).
+	if gotBadge != 1 {
+		t.Errorf("expected Badge=1 (payload fallback), got %d", gotBadge)
 	}
 }
 
