@@ -9,6 +9,8 @@ import (
 	"my-chat/internal/store"
 )
 
+const testUsernameAlice42 = "alice42"
+
 // --- mock ---
 
 type mockUserRepo struct {
@@ -39,7 +41,7 @@ func TestRegister_Success(t *testing.T) {
 		},
 	})
 
-	result, err := svc.Register(context.Background(), "alice42", "secret99")
+	result, err := svc.Register(context.Background(), testUsernameAlice42, "secret99")
 	if err != nil {
 		t.Fatalf("Register: unexpected error: %v", err)
 	}
@@ -47,8 +49,8 @@ func TestRegister_Success(t *testing.T) {
 	if result.ID == "" {
 		t.Error("expected non-empty user ID")
 	}
-	if result.Username != "alice42" {
-		t.Errorf("username: want alice42, got %q", result.Username)
+	if result.Username != testUsernameAlice42 {
+		t.Errorf("username: want %s, got %q", testUsernameAlice42, result.Username)
 	}
 	if result.Status != "active" {
 		t.Errorf("status: want active, got %q", result.Status)
@@ -70,7 +72,7 @@ func TestRegister_DuplicateUsername_ReturnsErrUsernameTaken(t *testing.T) {
 		},
 	})
 
-	_, err := svc.Register(context.Background(), "alice42", "password123")
+	_, err := svc.Register(context.Background(), testUsernameAlice42, "password123")
 	if err == nil {
 		t.Fatal("expected error for duplicate username, got nil")
 	}
@@ -84,7 +86,7 @@ func TestRegister_ShortPassword_ReturnsErrPasswordTooShort(t *testing.T) {
 
 	svc := newService(&mockUserRepo{})
 
-	_, err := svc.Register(context.Background(), "alice42", "short")
+	_, err := svc.Register(context.Background(), testUsernameAlice42, "short")
 	if err == nil {
 		t.Fatal("expected error for short password, got nil")
 	}
@@ -114,5 +116,28 @@ func TestRegister_InvalidUsername_ReturnsErrInvalidUsername(t *testing.T) {
 				t.Errorf("username %q: expected ErrInvalidUsername, got: %v", username, err)
 			}
 		})
+	}
+}
+
+func TestRegister_NormalizesUsernameToLowercase(t *testing.T) {
+	t.Parallel()
+
+	var created store.User
+	svc := newService(&mockUserRepo{
+		createFn: func(_ context.Context, u store.User) (store.User, error) {
+			created = u
+			return u, nil
+		},
+	})
+
+	result, err := svc.Register(context.Background(), "  Alice42  ", "secret99")
+	if err != nil {
+		t.Fatalf("Register: unexpected error: %v", err)
+	}
+	if result.Username != testUsernameAlice42 {
+		t.Errorf("username: want %s, got %q", testUsernameAlice42, result.Username)
+	}
+	if created.Username != testUsernameAlice42 {
+		t.Errorf("stored username: want %s, got %q", testUsernameAlice42, created.Username)
 	}
 }

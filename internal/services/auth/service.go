@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -77,10 +78,14 @@ func NewService(repo sessionRepository, userRepo userRepository, cfg Config, log
 }
 
 // Login создаёт новую сессию и выдаёт пару токенов.
+// Username сравнивается case-insensitive (нормализация к нижнему регистру).
 // Возвращает ErrInvalidCredentials при неверном username или пароле.
 // Возвращает ErrUserInactive, если аккаунт пользователя заблокирован.
-// deviceID опционален — передаётся при наличии зарегистрированного устройства.
+// deviceID — опциональный клиентский X-Device-ID для привязки refresh-сессии
+// (не обязан существовать в таблице devices).
 func (s *Service) Login(ctx context.Context, username, password string, deviceID *string) (TokenPair, error) {
+	username = strings.ToLower(strings.TrimSpace(username))
+
 	user, err := s.userRepo.FindByUsername(ctx, username)
 	if err != nil {
 		if errors.Is(err, store.ErrUserNotFound) {
@@ -94,6 +99,10 @@ func (s *Service) Login(ctx context.Context, username, password string, deviceID
 			slog.String("status", user.Status),
 		)
 		return TokenPair{}, ErrUserInactive
+	}
+	// Пустой/битый хеш (legacy без пароля) — как неверные credentials, не 500.
+	if user.PasswordHash == "" {
+		return TokenPair{}, ErrInvalidCredentials
 	}
 	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return TokenPair{}, ErrInvalidCredentials

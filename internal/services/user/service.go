@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -44,8 +45,11 @@ func NewService(repo userRepository) *Service {
 }
 
 // Register создаёт нового пользователя с bcrypt-хешем пароля.
+// Username нормализуется к нижнему регистру (логин case-insensitive).
 // Возвращает ErrInvalidUsername, ErrPasswordTooShort или ErrUsernameTaken при ошибках валидации/дублей.
 func (s *Service) Register(ctx context.Context, username, password string) (store.User, error) {
+	username = strings.ToLower(strings.TrimSpace(username))
+
 	if !usernameRe.MatchString(username) {
 		return store.User{}, ErrInvalidUsername
 	}

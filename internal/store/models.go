@@ -17,7 +17,7 @@ type AuthSession struct {
 	UserID      string
 	FamilyID    string
 	TokenHash   string  // SHA-256(refresh_token), hex-encoded
-	DeviceID    *string // опциональная связь с devices
+	DeviceID    *string // клиентский X-Device-ID (привязка refresh); не FK на devices
 	ExpiresAt   time.Time
 	RevokedAt   *time.Time
 	RotatedFrom *string // ID предыдущей сессии в цепочке ротации

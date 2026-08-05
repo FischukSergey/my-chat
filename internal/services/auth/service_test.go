@@ -17,11 +17,12 @@ import (
 // --- mocks ---
 
 const (
-	testUser1ID   = "user-1"
-	testFamily1   = "family-1"
-	testSession1  = "sess-1"
-	testUsername1 = "alice"
-	testPassword1 = "secret99"
+	testUser1ID      = "user-1"
+	testFamily1      = "family-1"
+	testSession1     = "sess-1"
+	testUsername1    = "alice"
+	testPassword1    = "secret99"
+	testStatusActive = "active"
 )
 
 // testPasswordHash — bcrypt-хеш testPassword1 с минимальной стоимостью (для скорости тестов).
@@ -41,7 +42,7 @@ func (m *mockUserRepo) FindByUsername(ctx context.Context, username string) (sto
 	if m.findByUsernameFn != nil {
 		return m.findByUsernameFn(ctx, username)
 	}
-	return store.User{ID: testUser1ID, Status: "active", Username: username, PasswordHash: testPasswordHash}, nil
+	return store.User{ID: testUser1ID, Status: testStatusActive, Username: username, PasswordHash: testPasswordHash}, nil
 }
 
 type mockSessionRepo struct {
@@ -214,6 +215,61 @@ func TestLogin_WrongPassword_ReturnsErrInvalidCredentials(t *testing.T) {
 	}
 	if !errors.Is(err, auth.ErrInvalidCredentials) {
 		t.Errorf("expected ErrInvalidCredentials, got %v", err)
+	}
+}
+
+func TestLogin_NormalizesUsernameCase(t *testing.T) {
+	var lookedUp string
+	userRepo := &mockUserRepo{
+		findByUsernameFn: func(_ context.Context, username string) (store.User, error) {
+			lookedUp = username
+			return store.User{
+				ID: testUser1ID, Status: testStatusActive, Username: username, PasswordHash: testPasswordHash,
+			}, nil
+		},
+	}
+	svc := auth.NewService(&mockSessionRepo{}, userRepo, testConfig(), testLogger())
+
+	_, err := svc.Login(context.Background(), "  Alice  ", testPassword1, nil)
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if lookedUp != "alice" {
+		t.Errorf("FindByUsername got %q, want %q", lookedUp, "alice")
+	}
+}
+
+func TestLogin_EmptyPasswordHash_ReturnsErrInvalidCredentials(t *testing.T) {
+	userRepo := &mockUserRepo{
+		findByUsernameFn: func(_ context.Context, username string) (store.User, error) {
+			return store.User{ID: testUser1ID, Status: testStatusActive, Username: username, PasswordHash: ""}, nil
+		},
+	}
+	svc := auth.NewService(&mockSessionRepo{}, userRepo, testConfig(), testLogger())
+
+	_, err := svc.Login(context.Background(), testUsername1, testPassword1, nil)
+	if !errors.Is(err, auth.ErrInvalidCredentials) {
+		t.Errorf("expected ErrInvalidCredentials for empty hash, got %v", err)
+	}
+}
+
+func TestLogin_WithClientDeviceID_Succeeds(t *testing.T) {
+	var created store.AuthSession
+	repo := &mockSessionRepo{
+		createFn: func(_ context.Context, s store.AuthSession) error {
+			created = s
+			return nil
+		},
+	}
+	svc := auth.NewService(repo, &mockUserRepo{}, testConfig(), testLogger())
+	deviceID := "11111111-1111-1111-1111-111111111111" // клиентский UUID, не обязан быть в devices
+
+	_, err := svc.Login(context.Background(), testUsername1, testPassword1, &deviceID)
+	if err != nil {
+		t.Fatalf("Login with client device_id: %v", err)
+	}
+	if created.DeviceID == nil || *created.DeviceID != deviceID {
+		t.Errorf("expected session.DeviceID=%s, got %v", deviceID, created.DeviceID)
 	}
 }
 
