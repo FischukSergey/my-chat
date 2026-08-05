@@ -4,6 +4,7 @@ package notification
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -27,6 +28,7 @@ type outboxRepository interface {
 
 type deviceRepository interface {
 	ListActive(ctx context.Context, userID string) ([]store.Device, error)
+	DisableByID(ctx context.Context, id string) error
 }
 
 // Config задаёт параметры работы Worker.
@@ -169,6 +171,21 @@ func (w *Worker) processTask(ctx context.Context, task store.NotificationOutbox)
 			DedupKey:    payload.DedupKey,
 		}
 		if err = w.provider.Send(ctx, msg); err != nil {
+			if errors.Is(err, push.ErrSubscriptionGone) {
+				// Подписка устарела — деактивируем устройство без повторных попыток.
+				w.log.Warn("subscription_gone",
+					slog.String("task_id", task.ID),
+					slog.String("device_id", device.ID),
+					slog.String("platform", device.Platform),
+				)
+				if disErr := w.devices.DisableByID(ctx, device.ID); disErr != nil {
+					w.log.Error("disable device failed",
+						slog.String("device_id", device.ID),
+						slog.String("error", disErr.Error()),
+					)
+				}
+				continue
+			}
 			sendErr = fmt.Errorf("device %s (%s): %w", device.ID, device.Platform, err)
 			break
 		}

@@ -91,6 +91,24 @@ func (r *DeviceRepository) Disable(ctx context.Context, userID, pushToken string
 	return nil
 }
 
+// DisableByID деактивирует устройство по его ID.
+// Используется при получении HTTP 404/410 от push-сервера (устаревшая Web Push подписка).
+// Не возвращает ошибку, если устройство не найдено.
+func (r *DeviceRepository) DisableByID(ctx context.Context, id string) error {
+	const q = `
+		UPDATE devices
+		   SET enabled    = FALSE,
+		       updated_at = NOW()
+		 WHERE id = $1`
+
+	_, err := r.db.Exec(ctx, q, id)
+	if err != nil {
+		return fmt.Errorf("disable device by id: %w", err)
+	}
+
+	return nil
+}
+
 // ListActive возвращает все активные устройства пользователя.
 func (r *DeviceRepository) ListActive(ctx context.Context, userID string) ([]Device, error) {
 	const q = `
