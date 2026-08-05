@@ -106,9 +106,9 @@ func TestRegister_InvalidUsername_ReturnsErrInvalidUsername(t *testing.T) {
 	svc := newService(&mockUserRepo{})
 
 	for _, username := range cases {
-
 		t.Run(username, func(t *testing.T) {
 			t.Parallel()
+
 			_, err := svc.Register(context.Background(), username, "password123")
 			if !errors.Is(err, user.ErrInvalidUsername) {
 				t.Errorf("username %q: expected ErrInvalidUsername, got: %v", username, err)
