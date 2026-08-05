@@ -70,7 +70,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	outboxRepo := store.NewNotificationOutboxRepository(postgresStore)
 	deviceRepo := store.NewDeviceRepository(postgresStore)
 
-	provider := buildProvider(cfg.NotificationWorker.Provider, log)
+	provider := buildProvider(cfg.NotificationWorker.Provider, cfg.NotificationWorker, log)
 	workerCfg := buildWorkerConfig(cfg.NotificationWorker)
 
 	log.Info("конфигурация worker",
@@ -122,10 +122,21 @@ func (a *App) Run(ctx context.Context) error {
 	return nil
 }
 
-func buildProvider(name string, log *slog.Logger) push.Provider {
+func buildProvider(name string, cfg config.NotificationWorkerConfig, log *slog.Logger) push.Provider {
 	switch name {
 	case "noop":
 		return push.NewNoopProvider()
+	case "webpush":
+		wpCfg := push.WebPushConfig{
+			VAPIDPrivateKey: cfg.WebPush.VAPIDPrivateKey,
+			VAPIDPublicKey:  cfg.WebPush.VAPIDPublicKey,
+			Subject:         cfg.WebPush.Subject,
+		}
+		if !wpCfg.IsConfigured() {
+			log.Warn("webpush: VAPID-ключи не настроены, fallback на dev-log")
+			return push.NewDevLogProvider(log)
+		}
+		return push.NewWebPushProvider(wpCfg)
 	default:
 		return push.NewDevLogProvider(log)
 	}

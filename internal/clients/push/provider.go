@@ -3,6 +3,7 @@ package push
 
 import (
 	"context"
+	"errors"
 
 	"my-chat/internal/store"
 )
@@ -30,3 +31,7 @@ type Provider interface {
 	// Send отправляет push-уведомление на одно устройство.
 	Send(ctx context.Context, msg Message) error
 }
+
+// ErrSubscriptionGone сигнализирует, что push-подписка устарела (HTTP 404/410 от push-сервера).
+// Worker при получении этой ошибки деактивирует устройство без повторных попыток.
+var ErrSubscriptionGone = errors.New("push subscription gone")

@@ -76,6 +76,14 @@ func (j JWTConfig) IsConfigured() bool {
 	return j.Secret != ""
 }
 
+// WebPushConfig хранит VAPID-параметры для Web Push провайдера.
+type WebPushConfig struct {
+	VAPIDPrivateKey string `yaml:"vapid_private_key" env:"VAPID_PRIVATE_KEY"`
+	VAPIDPublicKey  string `yaml:"vapid_public_key"  env:"VAPID_PUBLIC_KEY"`
+	// Subject — mailto: или https: URL, обязателен по спецификации VAPID.
+	Subject string `yaml:"subject" env:"VAPID_SUBJECT"`
+}
+
 // NotificationWorkerConfig хранит параметры notification-worker.
 // Нулевые значения означают использование дефолтов в App.New.
 type NotificationWorkerConfig struct {
@@ -83,9 +91,10 @@ type NotificationWorkerConfig struct {
 	BatchSize           int    `yaml:"batch_size" validate:"omitempty,min=1"`
 	MaxAttempts         int    `yaml:"max_attempts" validate:"omitempty,min=1"`
 	BackoffBaseSeconds  int    `yaml:"backoff_base_seconds" validate:"omitempty,min=1"`
-	Provider            string `yaml:"provider" validate:"omitempty,oneof=dev-log noop"`
+	Provider            string `yaml:"provider" env:"PUSH_PROVIDER" validate:"omitempty,oneof=dev-log noop webpush"`
 	// OutboxRetentionSeconds — сколько секунд хранить отправленные записи в outbox; 0 = дефолт (7 суток).
-	OutboxRetentionSeconds int `yaml:"outbox_retention_seconds" validate:"omitempty,min=3600"`
+	OutboxRetentionSeconds int           `yaml:"outbox_retention_seconds" validate:"omitempty,min=3600"`
+	WebPush                WebPushConfig `yaml:"web_push"`
 }
 
 // ChatConfig хранит параметры сервиса чата.

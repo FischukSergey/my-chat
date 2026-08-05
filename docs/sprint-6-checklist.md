@@ -108,23 +108,25 @@
 
 ## 7) Web Push провайдер
 
-- [ ] Добавить зависимость: `go get github.com/SherClockHolmes/webpush-go`.
-- [ ] Создать `internal/clients/push/webpush.go`:
+- [x] Добавить зависимость: `go get github.com/SherClockHolmes/webpush-go`.
+- [x] Создать `internal/clients/push/webpush.go`:
   - реализует `Provider` интерфейс;
   - `Name() string` → `"webpush"`;
   - `Send(ctx, msg)`:
     - десериализовать `device.PushSubscription` (JSON → `webpush.Subscription{}`);
     - если `msg.EventType != "badge_sync"`: payload `{ "title": preview, "body": "Новое сообщение", "badge": N, "dialog_id": ..., "message_id": ... }`;
     - если `msg.EventType == "badge_sync"`: payload `{ "type": "badge_sync", "badge": N }` (silent, без title/body);
-    - `webpush.SendNotification(payload, &subscription, options)`.
-- [ ] Добавить `WebPushConfig` в `internal/config/config.go`:
+    - `webpush.SendNotificationWithContext(payload, &subscription, options)`.
+- [x] Добавить `WebPushConfig` в `internal/config/config.go`:
   - `VAPIDPrivateKey string`, `VAPIDPublicKey string`, `Subject string`.
-- [ ] Добавить `WebPush WebPushConfig` в `NotificationWorkerConfig`.
-- [ ] Обновить фабрику провайдера в `App.New`: `"webpush"` → инициализировать `push.NewWebPushProvider(cfg)`.
-- [ ] Обновить конфиг `Provider: "webpush"` | `"devlog"` | `"noop"`.
-- [ ] Обновить `configs/config.notification-worker.prod.yaml`: `provider: webpush`.
-- [ ] Обработка ошибок HTTP 404/410 от push-сервера → деактивировать подписку в БД.
-- [ ] Unit-тест: mock HTTP-сервер, проверка корректности payload для alert и badge_sync.
+- [x] Добавить `WebPush WebPushConfig` в `NotificationWorkerConfig`.
+- [x] Обновить фабрику провайдера в `App.New`: `"webpush"` → инициализировать `push.NewWebPushProvider(cfg)`.
+- [x] Обновить конфиг `Provider: "webpush"` | `"dev-log"` | `"noop"` (validate в config.go).
+- [x] Обновить `configs/config.notification-worker.prod.yaml`: `provider: webpush`.
+- [x] Обработка ошибок HTTP 404/410 от push-сервера → деактивировать подписку в БД.
+- [x] Unit-тест: mock HTTP-сервер, проверка корректности payload для alert и badge_sync.
+
+Примечание: `webpush-go v1.4.0` добавлен в `go.mod`. Провайдер в `internal/clients/push/webpush.go`: `buildPayload` разделяет alert и badge_sync; HTTP 404/410 → `ErrSubscriptionGone`; в worker при `errors.Is(err, push.ErrSubscriptionGone)` — `devices.DisableByID` (новый метод в store) + `continue` без retry. `WebPushConfig` с env-тегами `VAPID_*`. Prod-конфиг теперь `provider: webpush` + секции `web_push:` с env-переменными. При отсутствии VAPID-ключей — graceful fallback на `dev-log` с предупреждением. `task lint` — 0 issues, `task test` — все PASS (в т.ч. `internal/clients/push`).
 
 ---
 

@@ -64,11 +64,17 @@ func (f *fakeOutbox) MarkFailed(_ context.Context, id string, lastErr string, ne
 }
 
 type fakeDevices struct {
-	devices map[string][]store.Device
+	devices    map[string][]store.Device
+	disabledID string // последний ID, переданный в DisableByID
 }
 
 func (f *fakeDevices) ListActive(_ context.Context, userID string) ([]store.Device, error) {
 	return f.devices[userID], nil
+}
+
+func (f *fakeDevices) DisableByID(_ context.Context, id string) error {
+	f.disabledID = id
+	return nil
 }
 
 // makeTask строит тестовую outbox-задачу с заданным числом attempt.
