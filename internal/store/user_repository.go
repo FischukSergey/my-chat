@@ -49,13 +49,13 @@ RETURNING id, status, username, password_hash, created_at`
 	return created, nil
 }
 
-// FindByUsername возвращает пользователя по username.
+// FindByUsername возвращает пользователя по username (сравнение без учёта регистра).
 // Возвращает ErrUserNotFound, если пользователь не найден.
 func (r *UserRepository) FindByUsername(ctx context.Context, username string) (User, error) {
 	const query = `
 SELECT id, status, username, password_hash, created_at
 FROM users
-WHERE username = $1`
+WHERE lower(username) = lower($1)`
 
 	var u User
 	if err := r.poolDB.QueryRow(ctx, query, username).Scan(

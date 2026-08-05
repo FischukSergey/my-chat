@@ -165,7 +165,7 @@ export async function apiRegister(
     const body = await res.json().catch(() => ({ error: {} }));
     const code = (body as { error?: { code?: string } })?.error?.code ?? "";
     const msg = (body as { error?: { message?: string } })?.error?.message ?? "";
-    if (code === "already_exists" || code === "conflict")
+    if (code === "username_taken" || code === "already_exists" || code === "conflict")
       throw new Error("Пользователь с таким именем уже существует");
     if (msg) throw new Error(msg);
     throw new Error(`register failed: ${res.status}`);
