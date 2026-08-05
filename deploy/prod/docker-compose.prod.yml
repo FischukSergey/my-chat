@@ -113,7 +113,10 @@ services:
       - my-chat-net
 
   nginx:
-    image: nginx:1.27-alpine
+    build:
+      context: ../../mobile
+      dockerfile: Dockerfile
+    image: my-chat-nginx:prod
     container_name: my-chat-nginx-prod
     <<: [*common-labels, *restart]
     ports:

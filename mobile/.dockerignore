@@ -1,0 +1,11 @@
+node_modules
+dist
+ios
+android
+.git
+.gitignore
+README.md
+*.md
+.env
+.env.*
+.DS_Store
