@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	"my-chat/internal/clients/push"
 	"my-chat/internal/services/notification"
@@ -282,5 +284,107 @@ func TestIntegration_WorkerProcessesOutbox_NoDevices_MarksSent(t *testing.T) {
 	}
 	if status != string(store.OutboxStatusSent) {
 		t.Errorf("expected status=sent (no-devices skipped gracefully), got %q", status)
+	}
+}
+
+// TestIntegration_RegisterLoginDeviceWeb_WebPushSent verifies the full flow:
+// register user → register web device → enqueue outbox task → worker calls web push provider.
+func TestIntegration_RegisterLoginDeviceWeb_WebPushSent(t *testing.T) {
+	s := setupIntegrationDB(t)
+	ctx := context.Background()
+
+	// 1. Register user with username and bcrypt password hash.
+	userID := uuid.NewString()
+	username := "webtest_" + userID[:8]
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("testpass99"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
+
+	_, err = s.DB().Exec(ctx,
+		"INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)",
+		userID, username, string(passwordHash),
+	)
+	if err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = s.DB().Exec(ctx, "DELETE FROM users WHERE id = $1", userID)
+	})
+
+	// 2. Register a web device with push_subscription JSON.
+	pushSub := `{"endpoint":"https://push.example.com/test-` + userID[:8] + `","keys":{"p256dh":"dGVzdA","auth":"dGVzdA"}}`
+	deviceRepo := store.NewDeviceRepository(s)
+
+	_, err = deviceRepo.Upsert(ctx, store.Device{
+		ID:               uuid.NewString(),
+		UserID:           userID,
+		Platform:         "web",
+		PushSubscription: pushSub,
+	})
+	if err != nil {
+		t.Fatalf("upsert web device: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = s.DB().Exec(ctx, "DELETE FROM devices WHERE user_id = $1", userID)
+	})
+
+	// 3. Enqueue an outbox task targeting this user.
+	task := makeOutboxTask(t, ctx, s, userID)
+
+	// 4. Run worker with a tracking NoopProvider.
+	var mu sync.Mutex
+	var sentMessages []push.Message
+
+	provider := push.NewNoopProvider()
+	provider.SendFunc = func(_ context.Context, msg push.Message) error {
+		mu.Lock()
+		sentMessages = append(sentMessages, msg)
+		mu.Unlock()
+		return nil
+	}
+
+	outboxRepo := store.NewNotificationOutboxRepository(s)
+	receiptRepo := store.NewReceiptRepository(s)
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	worker := notification.NewWorker(outboxRepo, deviceRepo, receiptRepo, provider, log, notification.Config{
+		BatchSize:   10,
+		MaxAttempts: 3,
+		BackoffBase: 10 * time.Second,
+	})
+
+	n, runErr := worker.RunOnce(ctx)
+	if runErr != nil {
+		t.Fatalf("RunOnce: %v", runErr)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 task processed, got %d", n)
+	}
+
+	// 5. Verify task status is 'sent'.
+	var taskStatus string
+	if scanErr := s.DB().QueryRow(ctx,
+		"SELECT status FROM notification_outbox WHERE id = $1", task.ID,
+	).Scan(&taskStatus); scanErr != nil {
+		t.Fatalf("fetch task status: %v", scanErr)
+	}
+	if taskStatus != string(store.OutboxStatusSent) {
+		t.Errorf("expected task status=sent, got %q", taskStatus)
+	}
+
+	// 6. Verify web push provider.Send was called with the web device.
+	mu.Lock()
+	msgs := sentMessages
+	mu.Unlock()
+
+	if len(msgs) == 0 {
+		t.Fatal("expected NoopProvider.Send to be called for web device, but it was not")
+	}
+	if msgs[0].Device.Platform != "web" {
+		t.Errorf("expected device platform=web, got %q", msgs[0].Device.Platform)
+	}
+	if msgs[0].EventType != eventTypeMessageNew {
+		t.Errorf("expected event_type=%q, got %q", eventTypeMessageNew, msgs[0].EventType)
 	}
 }

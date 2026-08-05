@@ -266,18 +266,28 @@
 
 ---
 
-## 16) Тесты и качество
+## 16) Тесты и качество ✅
 
-- [ ] Unit-тест `UserService.Register`: success, duplicate username, short password.
-- [ ] Unit-тест `auth.Service.Login`: success, wrong password, user not found.
-- [ ] Unit-тест Web Push провайдер: mock HTTP-сервер, корректный payload для alert.
-- [ ] Unit-тест Web Push провайдер: payload для `badge_sync` (без title/body).
-- [ ] Unit-тест Web Push: HTTP 410 от сервера → подписка деактивируется.
-- [ ] Unit-тест heartbeat: мёртвое соединение закрывается.
-- [ ] Unit-тест device binding: refresh с другого device_id → 403.
-- [ ] Unit-тест silent push: `mark_read` создаёт badge_sync задачи для всех устройств.
-- [ ] Integration-тест: register → login → register_device (web) → send → webpush отправляется.
-- [ ] Проверить `task fmt`, `task lint`, `task test`, `task test:integration`.
+- [x] Unit-тест `UserService.Register`: success, duplicate username, short password.
+  — `internal/services/user/service_test.go`: `TestRegister_Success`, `TestRegister_DuplicateUsername_ReturnsErrUsernameTaken`, `TestRegister_ShortPassword_ReturnsErrPasswordTooShort`, `TestRegister_InvalidUsername_ReturnsErrInvalidUsername`.
+- [x] Unit-тест `auth.Service.Login`: success, wrong password, user not found.
+  — Уже реализовано в Sprint 6 ранее: `TestLogin_ReturnsTokenPairAndCreatesSession`, `TestLogin_WrongPassword_ReturnsErrInvalidCredentials`, `TestLogin_UserNotFound_ReturnsErrInvalidCredentials` (`internal/services/auth/service_test.go`).
+- [x] Unit-тест Web Push провайдер: mock HTTP-сервер, корректный payload для alert.
+  — `internal/clients/push/webpush_test.go`: `TestBuildPayload_Alert`, `TestWebPushProvider_Send_Success`.
+- [x] Unit-тест Web Push провайдер: payload для `badge_sync` (без title/body).
+  — `internal/clients/push/webpush_test.go`: `TestBuildPayload_BadgeSync`.
+- [x] Unit-тест Web Push: HTTP 410 от сервера → подписка деактивируется.
+  — `internal/clients/push/webpush_test.go`: `TestWebPushProvider_Send_SubscriptionGone_on_410`, `TestWebPushProvider_Send_SubscriptionGone_on_404`.
+- [x] Unit-тест heartbeat: мёртвое соединение закрывается.
+  — `internal/hub/conn_test.go`: `TestRunConn_DeadConn_ClosesAfterPingFailure` (выполнено в пункте 11).
+- [x] Unit-тест device binding: refresh с другого device_id → 403.
+  — `internal/services/auth/service_test.go`: `TestRefresh_DeviceMismatch_ReturnsErrDeviceMismatch`; `internal/handlers/auth/handler_test.go`: `TestRefresh_WrongDeviceID_Returns403` (выполнено в пункте 12).
+- [x] Unit-тест silent push: `mark_read` создаёт badge_sync задачи для всех устройств.
+  — `internal/services/chat/service_test.go`: `TestMarkRead_EnqueuesBadgeSyncForReader` (выполнено в пункте 10).
+- [x] Integration-тест: register → login → register_device (web) → send → webpush отправляется.
+  — `internal/services/notification/integration_test.go`: `TestIntegration_RegisterLoginDeviceWeb_WebPushSent` — создаёт user+password, web-device с push_subscription, outbox-задачу, прогоняет worker с NoopProvider-трекером, проверяет вызов Send для platform=web.
+- [x] Проверить `task fmt`, `task lint`, `task test`, `task test:integration`.
+  — `task fmt` — OK; `task lint` — 0 issues; `task test` — all PASS; `task test:integration` — all PASS.
 
 ---
 
