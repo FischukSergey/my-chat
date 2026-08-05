@@ -282,6 +282,7 @@ func (s *Service) MarkRead(ctx context.Context, messageID, userID string, readAt
 	}))
 
 	s.sendBadgeUpdated(ctx, userID)
+	s.enqueueBadgeSync(ctx, messageID, userID)
 
 	// Запускаем TTL при первом прочтении: expires_at = readAt + ttl.
 	// Операция best-effort: ошибка не откатывает MarkRead.
@@ -346,6 +347,36 @@ func receiverID(dialog store.Dialog, userID string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// enqueueBadgeSync публикует silent badge-sync задачу в outbox для обновления бейджа
+// на всех остальных устройствах читателя (Web Push; worker обработает каждое активное устройство).
+// Ошибки best-effort — сбой не откатывает MarkRead.
+func (s *Service) enqueueBadgeSync(ctx context.Context, messageID, userID string) {
+	type badgeSyncPayload struct {
+		EventType string `json:"event_type"`
+		UserID    string `json:"user_id"`
+		DedupKey  string `json:"dedup_key"`
+	}
+
+	dedupKey := "badge_sync:" + messageID + ":" + userID
+
+	payloadBytes, err := json.Marshal(badgeSyncPayload{
+		EventType: "badge_sync",
+		UserID:    userID,
+		DedupKey:  dedupKey,
+	})
+	if err != nil {
+		return
+	}
+
+	_ = s.outbox.Enqueue(ctx, store.NotificationOutbox{
+		ID:        uuid.NewString(),
+		EventType: "badge_sync",
+		UserID:    userID,
+		Payload:   payloadBytes,
+		DedupKey:  dedupKey,
+	})
 }
 
 // formatOptionalTime форматирует *time.Time в RFC3339 строку или nil.

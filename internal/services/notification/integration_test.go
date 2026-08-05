@@ -122,10 +122,11 @@ func TestIntegration_WorkerProcessesOutbox_MarksSent(t *testing.T) {
 	task := makeOutboxTask(t, ctx, s, userID)
 
 	outboxRepo := store.NewNotificationOutboxRepository(s)
+	receiptRepo := store.NewReceiptRepository(s)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	provider := push.NewNoopProvider()
 
-	worker := notification.NewWorker(outboxRepo, deviceRepo, provider, log, notification.Config{
+	worker := notification.NewWorker(outboxRepo, deviceRepo, receiptRepo, provider, log, notification.Config{
 		BatchSize:   10,
 		MaxAttempts: 3,
 		BackoffBase: 10 * time.Second,
@@ -253,10 +254,11 @@ func TestIntegration_WorkerProcessesOutbox_NoDevices_MarksSent(t *testing.T) {
 
 	outboxRepo := store.NewNotificationOutboxRepository(s)
 	deviceRepo := store.NewDeviceRepository(s)
+	receiptRepo := store.NewReceiptRepository(s)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	provider := push.NewNoopProvider()
 
-	worker := notification.NewWorker(outboxRepo, deviceRepo, provider, log, notification.Config{
+	worker := notification.NewWorker(outboxRepo, deviceRepo, receiptRepo, provider, log, notification.Config{
 		BatchSize:   10,
 		MaxAttempts: 3,
 		BackoffBase: 10 * time.Second,

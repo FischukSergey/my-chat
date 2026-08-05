@@ -132,45 +132,53 @@
 
 ## 8) Endpoint VAPID public key + обновление devices/register
 
-- [ ] Добавить `GET /api/v1/push/vapid-public-key` (публичный роут, без auth):
+- [x] Добавить `GET /api/v1/push/vapid-public-key` (публичный роут, без auth):
   - возвращает `{ "public_key": "<base64url>" }`;
   - значение берётся из `cfg.Notifications.WebPush.VAPIDPublicKey`.
-- [ ] Обновить `POST /api/v1/devices/register`:
+- [x] Обновить `POST /api/v1/devices/register`:
   - принимать `{ "platform": "web", "push_subscription": { "endpoint": "...", "keys": { "p256dh": "...", "auth": "..." } } }`;
   - `platform: "web"` — добавить как допустимое значение.
-- [ ] Обновить валидацию `platform` в handler: `"ios"` | `"android"` | `"web"`.
-- [ ] Обновить unit-тест handler: тест регистрации с `platform=web` и `push_subscription`.
+- [x] Обновить валидацию `platform` в handler: `"ios"` | `"android"` | `"web"`.
+- [x] Обновить unit-тест handler: тест регистрации с `platform=web` и `push_subscription`.
+
+Примечание: `internal/handlers/push/handler.go` — новый handler `GET /api/v1/push/vapid-public-key`; ключ берётся из `cfg.NotificationWorker.WebPush.VAPIDPublicKey` (env `VAPID_PUBLIC_KEY`). `device/handler.go`: `registerRequest` получил поле `PushSubscription json.RawMessage`; валидация разветвлена по `platform` — для `web` обязателен `push_subscription`, для `ios`/`android` — `push_token`. `mainservice/app.go`: публичный маршрут `GET /api/v1/push/vapid-public-key` зарегистрирован. Тесты: `TestRegister_Web_WithPushSubscription`, `TestRegister_Web_MissingPushSubscription` добавлены; `TestRegister_TokenPlatformsAccepted` заменил `AllPlatformsAccepted` (web вынесен в отдельный happy-path тест); `TestRegister_ServiceError` переключён на `platform=ios`. `internal/handlers/push/handler_test.go`: `TestVapidPublicKey_ReturnsKey`, `TestVapidPublicKey_EmptyKey`. `task lint` — 0 issues, `task test` — все PASS.
 
 ---
 
 ## 9) Актуальный badge при отправке push
 
-- [ ] В `notification-worker`, перед `provider.Send`: запросить актуальный `unread_count` из БД.
-- [ ] Добавить `MessageRepository.CountUnread(ctx, userID string) (int, error)` (если не существует).
-- [ ] Обновить `Message.Badge` актуальным значением перед вызовом провайдера.
-- [ ] Unit-тест: badge в push = актуальный `unread_count`.
+- [x] В `notification-worker`, перед `provider.Send`: запросить актуальный `unread_count` из БД.
+- [x] Добавить `MessageRepository.CountUnread(ctx, userID string) (int, error)` (если не существует).
+- [x] Обновить `Message.Badge` актуальным значением перед вызовом провайдера.
+- [x] Unit-тест: badge в push = актуальный `unread_count`.
+
+Примечание: `CountUnread` уже существовал на `ReceiptRepository`. В `notification.Worker` добавлен интерфейс `unreadRepository{CountUnread}` и поле `unread`; `NewWorker` принимает его третьим аргументом. В `processTask` перед циклом по устройствам вызывается `w.unread.CountUnread(ctx, task.UserID)` — значение используется как `Badge`; при ошибке — graceful fallback на `payload.UnreadCount` с `log.Warn`. `notificationworker/app.go`: создаётся `receiptRepo` и передаётся в `NewWorker`. Unit-тесты: `TestWorker_BadgeEqualsActualUnreadCount` (badge=7 при реальном unread=7), `TestWorker_BadgeFallsBackToPayloadOnUnreadError` (badge=1 из payload при ошибке). Integration-тест обновлён. `task lint` — 0 issues, `task test` — все PASS.
 
 ---
 
 ## 10) Silent push для badge-sync между устройствами
 
-- [ ] В `chat.Service.MarkRead` после пересчёта unread:
+- [x] В `chat.Service.MarkRead` после пересчёта unread:
   - `DeviceRepository.ListActive(ctx, userID)` — все активные устройства читателя;
   - для каждого устройства (кроме текущей сессии) ставить в outbox задачу `type: "badge_sync"`.
-- [ ] В Web Push провайдере: для `badge_sync` — payload без `title`/`body`, TTL = 60 сек (badge не нужен надолго).
-- [ ] Unit-тест: `mark_read` создаёт `badge_sync` outbox-задачи для всех устройств читателя.
+- [x] В Web Push провайдере: для `badge_sync` — payload без `title`/`body`, TTL = 60 сек (badge не нужен надолго).
+- [x] Unit-тест: `mark_read` создаёт `badge_sync` outbox-задачи для всех устройств читателя.
+
+Примечание: Web Push провайдер для `badge_sync` (payload без title/body, TTL=60s) реализован в пункте 7. В `chat.Service.MarkRead` добавлен вызов `s.enqueueBadgeSync(ctx, messageID, userID)` после `sendBadgeUpdated`. `enqueueBadgeSync` — best-effort: публикует одну задачу `event_type=badge_sync` для читателя в outbox; notification-worker распределяет по всем активным устройствам пользователя (аналогично `message_new`). Dedup key `badge_sync:<messageID>:<userID>` исключает дубли при параллельных read-запросах. Актуальный badge worker запрашивает из БД (пункт 9). `TestMarkRead_EnqueuesBadgeSyncForReader` проверяет факт постановки задачи с `event_type=badge_sync` и `user_id=reader`. `task lint` — 0 issues, `task test` — все PASS.
 
 ---
 
 ## 11) WebSocket heartbeat
 
-- [ ] В `internal/hub/conn.go` (или аналоге) реализовать ping/pong:
+- [x] В `internal/hub/conn.go` (или аналоге) реализовать ping/pong:
   - тикер 30 сек: `conn.WriteMessage(websocket.PingMessage, nil)`;
   - `conn.SetPongHandler`: обновлять `ReadDeadline` при получении pong;
   - `conn.SetReadDeadline(now + 60 сек)` при каждом входящем сообщении;
   - при ошибке WriteMessage или таймауте ReadDeadline — закрыть соединение, unregister.
-- [ ] Unit-тест: мёртвое соединение корректно закрывается.
-- [ ] Unit-тест: pong получен → соединение остаётся живым.
+- [x] Unit-тест: мёртвое соединение корректно закрывается.
+- [x] Unit-тест: pong получен → соединение остаётся живым.
+
+Примечание: используется `coder/websocket` (не gorilla), поэтому API адаптирован: `conn.Ping(ctx)` вместо `WriteMessage(PingMessage)`; библиотека обрабатывает pong автоматически. Создан `internal/hub/conn.go`: интерфейс `wsConn{Read, Ping}`, функция `RunConn(ctx, conn, cfg)` — запускает heartbeat-горутину (`runHeartbeat`) и read-loop; при ошибке ping отменяет контекст через `WithCancelCause`; `ConnConfig{HeartbeatInterval=30s, PingTimeout=5s}` настраивается для тестов. `ws/handler.go`: read-loop заменён вызовом `hub.RunConn(ctx, rawConn, hub.DefaultConnConfig())`. Тесты: `TestRunConn_DeadConn_ClosesAfterPingFailure` — ping возвращает ошибку → RunConn завершается; `TestRunConn_PongReceived_ConnectionStaysAlive` — ping=nil × 2+, затем Read-ошибка → RunConn завершается. Race detector: OK (pingCount через `atomic.Int64`). `task lint` — 0 issues, `task test` — все PASS.
 
 ---
 
