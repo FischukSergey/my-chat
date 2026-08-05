@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	webpushlib "github.com/SherClockHolmes/webpush-go"
@@ -20,7 +21,7 @@ import (
 const (
 	testEndpoint       = "https://push.example.com/push/test"
 	testPlatform       = "web"
-	testSubject        = "mailto:test@example.com"
+	testSubject        = "test@example.com"
 	eventTypeMessage   = "message_new"
 	eventTypeBadgeSync = "badge_sync"
 )
@@ -71,7 +72,7 @@ type mockHTTPClient struct {
 func (m *mockHTTPClient) Do(_ *http.Request) (*http.Response, error) {
 	return &http.Response{
 		StatusCode: m.statusCode,
-		Body:       io.NopCloser(nil),
+		Body:       io.NopCloser(strings.NewReader("")),
 	}, nil
 }
 
@@ -215,6 +216,22 @@ func TestWebPushProvider_Send_Success(t *testing.T) {
 
 	if err := provider.Send(context.Background(), msg); err != nil {
 		t.Errorf("неожиданная ошибка при успешной отправке: %v", err)
+	}
+}
+
+func TestNormalizeVAPIDSubject(t *testing.T) {
+	const email = "admin@beepru.ru"
+	cases := map[string]string{
+		email:               email,
+		"mailto:" + email:   email,
+		"https://beepru.ru": "https://beepru.ru",
+		"  mailto:a@b.c  ":  "a@b.c",
+	}
+	for in, want := range cases {
+		got := push.NormalizeVAPIDSubject(in)
+		if got != want {
+			t.Errorf("NormalizeVAPIDSubject(%q)=%q, want %q", in, got, want)
+		}
 	}
 }
 

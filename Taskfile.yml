@@ -129,3 +129,65 @@ tasks:
     desc: "Follow logs of a single service: task local:logs:service -- <service>"
     cmds:
       - "{{.DOCKER_COMPOSE_CMD}} -f {{.LOCAL_COMPOSE_FILE}} logs -f {{.CLI_ARGS}}"
+
+  # ─── Prod diagnostics (SSH host alias: my-chat) ─────────────────────────────
+
+  prod:ps:
+    desc: "VPS: docker compose ps"
+    cmds:
+      - ssh my-chat 'cd /opt/my-chat && docker compose -f deploy/prod/docker-compose.prod.yml --env-file .env ps'
+
+  prod:logs:worker:
+    desc: "VPS: tail notification-worker logs (override: task prod:logs:worker -- 200)"
+    cmds:
+      - ssh my-chat 'docker logs my-chat-notification-worker-prod --tail {{if .CLI_ARGS}}{{.CLI_ARGS}}{{else}}100{{end}} 2>&1'
+
+  prod:logs:main:
+    desc: "VPS: tail main-service logs (override: task prod:logs:main -- 200)"
+    cmds:
+      - ssh my-chat 'docker logs my-chat-main-service-prod --tail {{if .CLI_ARGS}}{{.CLI_ARGS}}{{else}}100{{end}} 2>&1'
+
+  prod:push:status:
+    desc: "VPS: VAPID env, vapid API, devices, outbox, recent push logs"
+    cmds:
+      - |
+        ssh my-chat 'bash -s' <<'REMOTE'
+        set -euo pipefail
+        cd /opt/my-chat
+        set -a; source .env; set +a
+
+        echo "=== VAPID / PUSH env ==="
+        for k in VAPID_PRIVATE_KEY VAPID_PUBLIC_KEY VAPID_SUBJECT PUSH_PROVIDER; do
+          v="${!k-}"
+          if [ -z "$v" ]; then echo "$k=MISSING"
+          elif [[ "$v" == changeme* ]]; then echo "$k=PLACEHOLDER"
+          elif [ "$k" = "VAPID_SUBJECT" ] || [ "$k" = "PUSH_PROVIDER" ]; then echo "$k=$v"
+          else echo "$k=SET len=${#v}"
+          fi
+        done
+
+        echo "=== container SUBJECT ==="
+        docker exec my-chat-notification-worker-prod sh -c 'echo SUBJECT=$VAPID_SUBJECT'
+
+        echo "=== GET /api/v1/push/vapid-public-key ==="
+        curl -sS https://beepru.ru/api/v1/push/vapid-public-key; echo
+
+        echo "=== devices (web) ==="
+        docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" my-chat-postgres-prod \
+          psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+          -c "SELECT id, user_id, platform, enabled, left(push_subscription->>'endpoint', 60) AS endpoint, updated_at FROM devices ORDER BY updated_at DESC LIMIT 10;"
+
+        echo "=== outbox by status ==="
+        docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" my-chat-postgres-prod \
+          psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+          -c "SELECT status, count(*) FROM notification_outbox GROUP BY status ORDER BY 1;"
+
+        echo "=== recent outbox ==="
+        docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" my-chat-postgres-prod \
+          psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+          -c "SELECT id, event_type, status, attempts, left(coalesce(last_error,''), 120) AS err, created_at FROM notification_outbox ORDER BY created_at DESC LIMIT 10;"
+
+        echo "=== worker push logs ==="
+        docker logs my-chat-notification-worker-prod --tail 300 2>&1 \
+          | grep -E 'push_attempt|BadJwt|HTTP 403|webpush|provider' | tail -30 || true
+        REMOTE
