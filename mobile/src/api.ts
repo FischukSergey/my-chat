@@ -2,7 +2,7 @@
  * api.ts — HTTP client.
  *
  * Все запросы к main-service идут через fetchAuth() который:
- *   1. Добавляет Authorization header.
+ *   1. Добавляет Authorization + X-Device-ID заголовки.
  *   2. При 401 — пробует refresh (с биометрией).
  *   3. Повторяет запрос с новым access токеном.
  *   4. При session_compromised — wipe tokens + бросает SessionCompromisedError.
@@ -18,11 +18,42 @@ import {
 // URL бэкенда берётся из Vite env-переменных:
 //   .env.development  → пустые строки → relative URLs → Vite proxy
 //   .env              → реальные хосты → Capacitor / симулятор
-const BASE_AUTH = import.meta.env.VITE_AUTH_URL as string ?? "";
-const BASE_API  = import.meta.env.VITE_API_URL  as string ?? "";
+const BASE_AUTH = (import.meta.env.VITE_AUTH_URL as string) ?? "";
+const BASE_API = (import.meta.env.VITE_API_URL as string) ?? "";
 
 function authUrl(): string { return BASE_AUTH; }
 function apiUrl(): string  { return BASE_API; }
+
+// --- Device ID (localStorage, not sensitive) ---
+
+const LS_DEVICE_ID = "my_chat_device_id";
+
+/** Возвращает постоянный device_id, генерируя его при первом вызове. */
+export function getOrCreateDeviceId(): string {
+  let id = localStorage.getItem(LS_DEVICE_ID);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(LS_DEVICE_ID, id);
+  }
+  return id;
+}
+
+// --- JWT utils ---
+
+/**
+ * Декодирует payload JWT без верификации подписи.
+ * Используется только для извлечения user_id на клиентской стороне.
+ */
+export function extractUserIdFromJwt(token: string): string {
+  try {
+    const [, payload] = token.split(".");
+    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+    const claims = JSON.parse(json) as Record<string, unknown>;
+    return (claims["user_id"] as string) ?? "";
+  } catch {
+    return "";
+  }
+}
 
 // --- Ошибки ---
 
@@ -62,33 +93,44 @@ export interface LoginResult extends TokenPair {
 
 // --- Auth API ---
 
-export async function apiLogin(userId: string): Promise<LoginResult> {
+/** Аутентификация по username + password. */
+export async function apiLogin(
+  username: string,
+  password: string
+): Promise<LoginResult> {
   const res = await fetch(`${authUrl()}/api/v1/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: userId }),
+    headers: {
+      "Content-Type": "application/json",
+      "X-Device-ID": getOrCreateDeviceId(),
+    },
+    body: JSON.stringify({ username, password }),
   });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(
-      `login failed: ${res.status} ${JSON.stringify(err)}`
-    );
+    const code = (err as { error?: { code?: string } })?.error?.code ?? "";
+    if (code === "invalid_credentials") throw new Error("Неверный логин или пароль");
+    throw new Error(`login failed: ${res.status} ${JSON.stringify(err)}`);
   }
 
   return res.json() as Promise<LoginResult>;
 }
 
+/** Обновление токена с device binding. */
 export async function apiRefresh(refreshToken: string): Promise<TokenPair> {
   const res = await fetch(`${authUrl()}/api/v1/auth/refresh`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Device-ID": getOrCreateDeviceId(),
+    },
     body: JSON.stringify({ refresh_token: refreshToken }),
   });
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: {} }));
-    const code = body?.error?.code ?? "";
+    const code = (body as { error?: { code?: string } })?.error?.code ?? "";
     if (code === "session_compromised") throw new SessionCompromisedError();
     if (code === "session_expired") throw new SessionExpiredError();
     if (code === "session_revoked") throw new SessionRevokedError();
@@ -106,6 +148,28 @@ export async function apiLogout(refreshToken: string): Promise<void> {
   }).catch(() => {
     // best-effort: logout всегда очищает локальные токены
   });
+}
+
+/** Регистрация нового пользователя. */
+export async function apiRegister(
+  username: string,
+  password: string
+): Promise<void> {
+  const res = await fetch(`${apiUrl()}/api/v1/users/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: {} }));
+    const code = (body as { error?: { code?: string } })?.error?.code ?? "";
+    const msg = (body as { error?: { message?: string } })?.error?.message ?? "";
+    if (code === "already_exists" || code === "conflict")
+      throw new Error("Пользователь с таким именем уже существует");
+    if (msg) throw new Error(msg);
+    throw new Error(`register failed: ${res.status}`);
+  }
 }
 
 // --- Авторизованные запросы ---
@@ -159,6 +223,33 @@ export async function fetchAuth(
   }
 
   return res;
+}
+
+// --- Push API ---
+
+/** Возвращает VAPID public key для web push подписки. */
+export async function getVapidPublicKey(): Promise<string> {
+  const res = await fetch(`${apiUrl()}/api/v1/push/vapid-public-key`);
+  if (!res.ok) throw new Error(`vapid-public-key: ${res.status}`);
+  const data = (await res.json()) as { public_key: string };
+  return data.public_key;
+}
+
+/** Регистрирует устройство для push-уведомлений. */
+export async function registerDevice(
+  platform: string,
+  pushSubscription: unknown
+): Promise<void> {
+  const body =
+    platform === "web"
+      ? { platform, push_subscription: pushSubscription, device_id: getOrCreateDeviceId() }
+      : { platform, device_id: getOrCreateDeviceId() };
+
+  const res = await fetchAuth("/api/v1/devices/register", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`registerDevice: ${res.status}`);
 }
 
 // --- Прикладные вызовы ---

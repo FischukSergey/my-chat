@@ -98,7 +98,7 @@ func TestIntegration_Login_Refresh_OldRefreshInvalid(t *testing.T) {
 	}
 
 	// Refresh — ротируем. Старый refresh должен стать невалидным.
-	pair2, err := svc.Refresh(ctx, pair1.RefreshToken)
+	pair2, err := svc.Refresh(ctx, pair1.RefreshToken, nil)
 	if err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
@@ -111,13 +111,13 @@ func TestIntegration_Login_Refresh_OldRefreshInvalid(t *testing.T) {
 	}
 
 	// Попытка использовать старый refresh → reuse detection → session_compromised.
-	_, err = svc.Refresh(ctx, pair1.RefreshToken)
+	_, err = svc.Refresh(ctx, pair1.RefreshToken, nil)
 	if !errors.Is(err, authsvc.ErrSessionCompromised) {
 		t.Errorf("expected ErrSessionCompromised, got %v", err)
 	}
 
 	// Новый refresh тоже должен быть отозван (вся family revoked).
-	_, err = svc.Refresh(ctx, pair2.RefreshToken)
+	_, err = svc.Refresh(ctx, pair2.RefreshToken, nil)
 	if !errors.Is(err, authsvc.ErrSessionRevoked) && !errors.Is(err, authsvc.ErrSessionCompromised) {
 		t.Errorf("expected ErrSessionRevoked or ErrSessionCompromised for new token after family revoke, got %v", err)
 	}
@@ -143,7 +143,7 @@ func TestIntegration_Logout_RefreshFails(t *testing.T) {
 	}
 
 	// Refresh после logout должен вернуть ошибку.
-	_, err = svc.Refresh(ctx, pair.RefreshToken)
+	_, err = svc.Refresh(ctx, pair.RefreshToken, nil)
 	if err == nil {
 		t.Fatal("expected error after logout, got nil")
 	}
@@ -173,19 +173,19 @@ func TestIntegration_ReuseDetection_FamilyRevoked(t *testing.T) {
 	}
 
 	// Первый refresh → пара 2.
-	pair2, err := svc.Refresh(ctx, pair1.RefreshToken)
+	pair2, err := svc.Refresh(ctx, pair1.RefreshToken, nil)
 	if err != nil {
 		t.Fatalf("first Refresh: %v", err)
 	}
 
 	// Второй refresh → пара 3.
-	pair3, err := svc.Refresh(ctx, pair2.RefreshToken)
+	pair3, err := svc.Refresh(ctx, pair2.RefreshToken, nil)
 	if err != nil {
 		t.Fatalf("second Refresh: %v", err)
 	}
 
 	// Reuse: повторно используем пару 1 (старый, уже отозванный токен).
-	_, err = svc.Refresh(ctx, pair1.RefreshToken)
+	_, err = svc.Refresh(ctx, pair1.RefreshToken, nil)
 	if !errors.Is(err, authsvc.ErrSessionCompromised) {
 		t.Fatalf("expected ErrSessionCompromised on reuse, got %v", err)
 	}
@@ -195,7 +195,7 @@ func TestIntegration_ReuseDetection_FamilyRevoked(t *testing.T) {
 		"pair2": pair2.RefreshToken,
 		"pair3": pair3.RefreshToken,
 	} {
-		_, err = svc.Refresh(ctx, token)
+		_, err = svc.Refresh(ctx, token, nil)
 		if err == nil {
 			t.Errorf("%s: expected error after family revoke, got nil", name)
 			continue

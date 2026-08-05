@@ -184,18 +184,20 @@
 
 ## 12) Device binding для refresh-токена
 
-- [ ] `POST /api/v1/auth/login` — принимать опциональный заголовок `X-Device-ID`.
-- [ ] Сохранять в `auth_sessions.device_id` (поле уже есть).
-- [ ] `POST /api/v1/auth/refresh` — если сессия имеет `device_id`, сверять с `X-Device-ID` → `403 device_mismatch`.
-- [ ] Добавить `ErrDeviceMismatch` и маппинг `403` в handler.
-- [ ] Unit-тест: refresh с другого device_id → 403.
-- [ ] Unit-тест: refresh с правильным device_id → 200.
+ - [x] `POST /api/v1/auth/login` — принимать опциональный заголовок `X-Device-ID`.
+ - [x] Сохранять в `auth_sessions.device_id` (поле уже есть).
+ - [x] `POST /api/v1/auth/refresh` — если сессия имеет `device_id`, сверять с `X-Device-ID` → `403 device_mismatch`.
+ - [x] Добавить `ErrDeviceMismatch` и маппинг `403` в handler.
+ - [x] Unit-тест: refresh с другого device_id → 403.
+ - [x] Unit-тест: refresh с правильным device_id → 200.
+
+Примечание: `ErrDeviceMismatch` добавлен в `internal/services/auth/service.go`. `Refresh` получил новый аргумент `deviceID *string`; если `session.DeviceID != nil` и переданный ID не совпадает (или nil) — возвращается `ErrDeviceMismatch`. `handler.go`: интерфейс обновлён, `deviceIDFromRequest(r)` читает заголовок `X-Device-ID`; для login и refresh передаётся в сервис; `respondAuthError` маппит `ErrDeviceMismatch` → 403 `device_mismatch`. CORS в `mainservice/app.go` и `authproxy/middleware.go` расширен `X-Device-ID`. Тесты: `TestRefresh_DeviceMismatch_ReturnsErrDeviceMismatch`, `TestRefresh_CorrectDeviceID_Succeeds` (service); `TestRefresh_WrongDeviceID_Returns403`, `TestRefresh_CorrectDeviceID_Returns200` (handler). `task lint` — 0 issues, `task test` — все PASS.
 
 ---
 
 ## 13) PWA-инфраструктура клиента
 
-- [ ] Добавить `mobile/public/manifest.json`:
+ - [x] Добавить `mobile/public/manifest.json`:
   ```json
   {
     "name": "MyChat",
@@ -210,60 +212,57 @@
     ]
   }
   ```
-- [ ] Добавить иконки `mobile/public/icons/icon-192.png` и `icon-512.png`.
-- [ ] Добавить `<link rel="manifest" href="/manifest.json">` и `<meta name="theme-color">` в `index.html`.
-- [ ] Добавить `mobile/public/sw.js` — Service Worker:
+ - [x] Добавить иконки `mobile/public/icons/icon-192.png` и `icon-512.png`.
+ - [x] Добавить `<link rel="manifest" href="/manifest.json">` и `<meta name="theme-color">` в `index.html`.
+ - [x] Добавить `mobile/public/sw.js` — Service Worker:
   - `push` event → `showNotification()` для обычных уведомлений;
   - `push` event + `type == "badge_sync"` → `self.navigator?.setAppBadge(data.badge)` (без уведомления);
   - `notificationclick` event → открыть нужный диалог (`clients.openWindow`).
-- [ ] Зарегистрировать SW в `main.ts`:
+ - [x] Зарегистрировать SW в `main.ts`:
   ```ts
   if ('serviceWorker' in navigator) {
     await navigator.serviceWorker.register('/sw.js');
   }
   ```
-- [ ] Показывать баннер пользователю если PWA не установлена (проверка `window.matchMedia('(display-mode: standalone)')`).
-- [ ] Проверить в Chrome DevTools → Application → Manifest: статус OK.
+ - [x] Показывать баннер пользователю если PWA не установлена (проверка `window.matchMedia('(display-mode: standalone)')`).
+ - [ ] Проверить в Chrome DevTools → Application → Manifest: статус OK.
+
+Примечание: `vite.config.ts` получил `publicDir: "../public"` — все статические файлы хранятся в `mobile/public/`. `manifest.json`: `theme_color: #007aff` (iOS blue). Иконки `icon-192.png`/`icon-512.png` — сгенерированные PNG 192×192 и 512×512 (синий фон, белая буква M). `sw.js`: `push` event → проверка `event_type === "badge_sync"` → `navigator.setAppBadge(badge)` без уведомления; иначе `showNotification()`; `notificationclick` → `clients.matchAll` + `focus`/`openWindow` + `postMessage({type:"open_dialog",...})`. `index.html`: `<meta name="theme-color">`, `<link rel="manifest">`, HTML-блок баннера `#install-banner` со стилями. `main.ts`: `initPWA()` — `navigator.serviceWorker.register('/sw.js')` + слушатель `beforeinstallprompt`/`appinstalled`; `initInstallBannerButtons()` — кнопки «Установить»/«Закрыть». `tsc --noEmit` — 0 ошибок, `vite build` — OK. Проверка Chrome DevTools — вручную.
 
 ---
 
 ## 14) Обновление мобильного клиента (PWA)
 
-- [ ] Экран Login: заменить поле `User ID (UUID)` на `Username` + `Password`.
-- [ ] Добавить экран Register: `Username`, `Password`, `Confirm Password` → `POST /api/v1/users/register`.
-- [ ] После успешной регистрации — автоматический переход на Login.
-- [ ] Обновить `mobile/src/api.ts`:
+ - [x] Экран Login: заменить поле `User ID (UUID)` на `Username` + `Password`.
+ - [x] Добавить экран Register: `Username`, `Password`, `Confirm Password` → `POST /api/v1/users/register`.
+ - [x] После успешной регистрации — автоматический переход на Login.
+ - [x] Обновить `mobile/src/api.ts`:
   - `login(username, password)` — изменить тело запроса;
   - добавить `register(username, password)`;
   - добавить `getVapidPublicKey()` → `GET /api/v1/push/vapid-public-key`;
   - добавить `registerDevice(platform, pushSubscription)`.
-- [ ] Реализовать подписку на Web Push в `main.ts`:
-  ```ts
-  const reg = await navigator.serviceWorker.ready;
-  const vapidKey = await api.getVapidPublicKey();
-  const sub = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(vapidKey)
-  });
-  await api.registerDevice('web', sub.toJSON());
-  ```
-- [ ] Добавить `X-Device-ID` заголовок в login/refresh запросы (device_id хранить в `localStorage`).
-- [ ] Обработать `PushNotification.requestPermission()` — запросить разрешение перед подпиской.
-- [ ] Fallback: если `'PushManager' !in window` (iOS < 16.4) — показывать предупреждение.
-- [ ] Проверить `npm run build` — 0 ошибок TypeScript.
+ - [x] Реализовать подписку на Web Push в `main.ts`.
+ - [x] Добавить `X-Device-ID` заголовок в login/refresh запросы (device_id хранить в `localStorage`).
+ - [x] Обработать `Notification.requestPermission()` — запросить разрешение перед подпиской.
+ - [x] Fallback: если `'PushManager' !in window` (iOS < 16.4) — показывать предупреждение в лог.
+ - [x] Проверить `npm run build` — 0 ошибок TypeScript.
+
+Примечание: `api.ts` — `apiLogin(username, password)` + `X-Device-ID` в login/refresh; `apiRegister`; `getVapidPublicKey`; `registerDevice('web', sub.toJSON())`; `getOrCreateDeviceId()` (localStorage `my_chat_device_id`); `extractUserIdFromJwt` — декодирует JWT без проверки подписи, извлекает `user_id`. `index.html` — login: `username-input` + `password-input` + кнопка «Зарегистрироваться»; добавлен экран `#register` с полями reg-username/password/confirm + `input[type=password]` в стилях. `main.ts` — `ScreenName` расширен `"register"`; `handleLogin` читает username+password, сохраняет user_id из JWT; `handleRegister` — POST /api/v1/users/register + redirect на login; `subscribePush()` — проверка PushManager, `Notification.requestPermission()`, `getSubscription()` (skip if exists), `urlBase64ToUint8Array`, `pushManager.subscribe`, `registerDevice`; сохранение username в localStorage; `showLoginScreen` восстанавливает username. `tsc --noEmit` — 0 ошибок, `npm run build` — OK.
 
 ---
 
 ## 15) Конфиги и инфраструктура
 
-- [ ] Обновить `configs/config.notification-worker.prod.yaml`: `provider: webpush`.
-- [ ] Добавить в `deploy/prod/.env.example`: `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT`.
-- [ ] Обновить `deploy/prod/docker-compose.prod.yml`: передать VAPID env-переменные в `notification-worker` и `main-service` (для endpoint VAPID public key).
-- [ ] Добавить seed-пользователей в prod (один раз): `docker compose exec postgres psql ...`.
-- [ ] Убедиться, что `.env` содержит реальные VAPID ключи и не попадает в git.
-- [ ] `task lint` — 0 issues.
-- [ ] `task test` — все unit-тесты PASS.
-- [ ] `task test:integration` — все integration-тесты PASS.
+ - [x] Обновить `configs/config.notification-worker.prod.yaml`: `provider: webpush`.
+ - [x] Добавить в `.env.example`: `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT`.
+ - [x] Обновить `deploy/prod/docker-compose.prod.yml`: передать VAPID env-переменные в `notification-worker` и `main-service` (для endpoint VAPID public key).
+ - [ ] Добавить seed-пользователей в prod (один раз): `docker compose exec postgres psql ...`.
+ - [x] Убедиться, что `.env` содержит реальные VAPID ключи и не попадает в git (`.gitignore`: `.env`, `.env.*`, `!.env.example`).
+ - [x] `task lint` — 0 issues.
+ - [x] `task test` — все unit-тесты PASS.
+ - [x] `task test:integration` — все integration-тесты PASS.
+
+Примечание: `configs/config.notification-worker.prod.yaml` уже имел `provider: webpush` и VAPID env-теги из предыдущих спринтов. `.env.example` уже содержал VAPID-переменные. `configs/config.main-service.prod.yaml` дополнен секцией `notification_worker.web_push.vapid_public_key: ${VAPID_PUBLIC_KEY}` — для endpoint `GET /api/v1/push/vapid-public-key`. `deploy/prod/docker-compose.prod.yml`: `main-service` получил `environment.VAPID_PUBLIC_KEY`; `notification-worker` — `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT`. `.gitignore` уже содержит `.env` и `.env.*` (кроме `.env.example`). Seed-пользователей нужно добавить вручную через `docker compose exec postgres psql`. `task lint` — 0 issues, `task test` — все PASS.
 
 ---
 

@@ -30,6 +30,9 @@ var (
 	ErrUserInactive = errors.New("user account is inactive")
 	// ErrInvalidCredentials возвращается при неверном username или пароле.
 	ErrInvalidCredentials = errors.New("invalid credentials")
+	// ErrDeviceMismatch возвращается, если X-Device-ID запроса не совпадает
+	// с device_id, сохранённым при создании сессии.
+	ErrDeviceMismatch = errors.New("device mismatch")
 )
 
 // Config хранит настройки сервиса аутентификации.
@@ -140,7 +143,8 @@ func (s *Service) Login(ctx context.Context, username, password string, deviceID
 
 // Refresh ротирует refresh-токен: инвалидирует старый и выдаёт новую пару.
 // При повторном использовании отозванного токена (reuse detection) отзывает всю family.
-func (s *Service) Refresh(ctx context.Context, refreshToken string) (TokenPair, error) {
+// deviceID опционален: если сессия была привязана к устройству, значение должно совпадать.
+func (s *Service) Refresh(ctx context.Context, refreshToken string, deviceID *string) (TokenPair, error) {
 	claims, err := internaljwt.ParseRefreshClaims(refreshToken, s.cfg.JWTSecret)
 	if err != nil {
 		return TokenPair{}, ErrSessionRevoked
@@ -177,6 +181,13 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (TokenPair, 
 
 	if session.IsExpired() {
 		return TokenPair{}, ErrSessionExpired
+	}
+
+	// Device binding: если сессия была создана с device_id, сверяем с запросом.
+	if session.DeviceID != nil {
+		if deviceID == nil || *session.DeviceID != *deviceID {
+			return TokenPair{}, ErrDeviceMismatch
+		}
 	}
 
 	userID := claims.UserID

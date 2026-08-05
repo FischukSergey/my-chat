@@ -27,3 +27,9 @@ chat:
 cors:
   allowed_origins:
     - https://beepru.ru
+
+# VAPID public key для endpoint GET /api/v1/push/vapid-public-key.
+# Значение берётся из переменной окружения VAPID_PUBLIC_KEY (устанавливается через .env).
+notification_worker:
+  web_push:
+    vapid_public_key: ${VAPID_PUBLIC_KEY}

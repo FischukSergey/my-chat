@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   root: "src",
   envDir: "..",   // .env файлы лежат в mobile/, а не в mobile/src/
+  publicDir: "../public",  // статика (manifest.json, sw.js, icons) в mobile/public/
   build: {
     outDir: "../dist",
     emptyOutDir: true,

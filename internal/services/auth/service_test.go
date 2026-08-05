@@ -251,7 +251,7 @@ func TestRefresh_ValidToken_RotatesSession(t *testing.T) {
 	}
 
 	svc2 := auth.NewService(repo2, &mockUserRepo{}, testConfig(), testLogger())
-	newPair, err := svc2.Refresh(context.Background(), pair.RefreshToken)
+	newPair, err := svc2.Refresh(context.Background(), pair.RefreshToken, nil)
 	if err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestRefresh_ValidToken_RotatesSession(t *testing.T) {
 }
 
 func TestRefresh_InvalidJWT_ReturnsErrRevoked(t *testing.T) {
-	_, err := newService(&mockSessionRepo{}).Refresh(context.Background(), "not-a-jwt")
+	_, err := newService(&mockSessionRepo{}).Refresh(context.Background(), "not-a-jwt", nil)
 	if !errors.Is(err, auth.ErrSessionRevoked) {
 		t.Errorf("expected ErrSessionRevoked, got %v", err)
 	}
@@ -295,7 +295,7 @@ func TestRefresh_SessionNotFound_ReturnsErrRevoked(t *testing.T) {
 		},
 	}
 
-	_, err = auth.NewService(repo, &mockUserRepo{}, testConfig(), testLogger()).Refresh(context.Background(), pair.RefreshToken)
+	_, err = auth.NewService(repo, &mockUserRepo{}, testConfig(), testLogger()).Refresh(context.Background(), pair.RefreshToken, nil)
 	if !errors.Is(err, auth.ErrSessionRevoked) {
 		t.Errorf("expected ErrSessionRevoked, got %v", err)
 	}
@@ -329,7 +329,7 @@ func TestRefresh_RevokedSession_ReturnsErrCompromised_AndRevokesFamily(t *testin
 		},
 	}
 
-	_, err = auth.NewService(repo, &mockUserRepo{}, testConfig(), testLogger()).Refresh(context.Background(), pair.RefreshToken)
+	_, err = auth.NewService(repo, &mockUserRepo{}, testConfig(), testLogger()).Refresh(context.Background(), pair.RefreshToken, nil)
 	if !errors.Is(err, auth.ErrSessionCompromised) {
 		t.Errorf("expected ErrSessionCompromised, got %v", err)
 	}
@@ -359,7 +359,7 @@ func TestRefresh_ExpiredSession_ReturnsErrExpired(t *testing.T) {
 		},
 	}
 
-	_, err = auth.NewService(repo, &mockUserRepo{}, testConfig(), testLogger()).Refresh(context.Background(), pair.RefreshToken)
+	_, err = auth.NewService(repo, &mockUserRepo{}, testConfig(), testLogger()).Refresh(context.Background(), pair.RefreshToken, nil)
 	if !errors.Is(err, auth.ErrSessionExpired) {
 		t.Errorf("expected ErrSessionExpired, got %v", err)
 	}
@@ -447,6 +447,74 @@ func TestLogout_AlreadyRevoked_ReturnsNil(t *testing.T) {
 	svcRevoked := auth.NewService(repo, &mockUserRepo{}, testConfig(), testLogger())
 	if err = svcRevoked.Logout(context.Background(), pair.RefreshToken); err != nil {
 		t.Errorf("Logout for already-revoked session must be idempotent, got: %v", err)
+	}
+}
+
+// --- Device binding ---
+
+func ptr(s string) *string { return &s }
+
+func TestRefresh_DeviceMismatch_ReturnsErrDeviceMismatch(t *testing.T) {
+	// Логинимся с device-A, затем пытаемся рефрешить с device-B.
+	devA := "device-A"
+	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
+		context.Background(), testUsername1, testPassword1, &devA,
+	)
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+
+	session := store.AuthSession{
+		ID:        testSession1,
+		UserID:    testUser1ID,
+		FamilyID:  testFamily1,
+		DeviceID:  ptr("device-A"),
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
+	}
+	repo := &mockSessionRepo{
+		findByTokenHashFn: func(_ context.Context, _ string) (store.AuthSession, error) {
+			return session, nil
+		},
+	}
+
+	_, err = auth.NewService(repo, &mockUserRepo{}, testConfig(), testLogger()).Refresh(
+		context.Background(), pair.RefreshToken, ptr("device-B"),
+	)
+	if !errors.Is(err, auth.ErrDeviceMismatch) {
+		t.Errorf("expected ErrDeviceMismatch, got %v", err)
+	}
+}
+
+func TestRefresh_CorrectDeviceID_Succeeds(t *testing.T) {
+	devA := "device-A"
+	pair, err := auth.NewService(&mockSessionRepo{}, &mockUserRepo{}, testConfig(), testLogger()).Login(
+		context.Background(), testUsername1, testPassword1, &devA,
+	)
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+
+	session := store.AuthSession{
+		ID:        testSession1,
+		UserID:    testUser1ID,
+		FamilyID:  testFamily1,
+		DeviceID:  ptr("device-A"),
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
+	}
+	repo := &mockSessionRepo{
+		findByTokenHashFn: func(_ context.Context, _ string) (store.AuthSession, error) {
+			return session, nil
+		},
+		rotateSessionFn: func(_ context.Context, _ string, _ store.AuthSession) error {
+			return nil
+		},
+	}
+
+	_, err = auth.NewService(repo, &mockUserRepo{}, testConfig(), testLogger()).Refresh(
+		context.Background(), pair.RefreshToken, ptr("device-A"),
+	)
+	if err != nil {
+		t.Errorf("expected success with correct device, got %v", err)
 	}
 }
 
