@@ -36,5 +36,3 @@ bash deploy/prod/init-ssl.sh             # боевой сертификат
 ```
 
 Подробнее: [`docs/sprint-5-plan.md`](docs/sprint-5-plan.md)
-
-Добавил в настройки генерацию комитов на русском
