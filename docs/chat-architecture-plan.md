@@ -3,7 +3,7 @@
 Документ — living architecture: цели, принятые решения и фактическое устройство системы.  
 Детальные задачи и DoD — в `docs/sprint-N-plan.md` / `docs/sprint-N-checklist.md`. Контракты API — в `docs/api-sprint-N.md`.
 
-**Статус (2026-08):** спринты **1–5 DONE**; активен **Sprint 6** (credentials/register в backend готовы; Web Push, PWA, WS heartbeat, device binding — в работе). Prod: **https://beepru.ru**.
+**Статус (2026-08):** спринты **1–5 DONE**; **Sprint 6** функционально закрыт. Далее: **7** (список чатов) → **8** (PWA unlock) и **9** (at-rest encryption сообщений; после 7, ортогонален 8). Prod: **https://beepru.ru**.
 
 ---
 
@@ -292,14 +292,25 @@ TTL после read, `message-expirer`, `message_deleted`, rate-limit login, COR
 ### Sprint 5 — DONE (prod deploy)
 Домен `beepru.ru`, nginx+TLS, `deploy/prod/`, CD на VPS, prod-конфиги, Page Visibility для mark-read.
 
-### Sprint 6 — IN PROGRESS (production polish / PWA)
-| Готово | Дальше |
-|--------|--------|
-| Контракты `api-sprint-6`, VAPID в `.env`, миграции `010`/`011`, `users/register`, login username/password | Web Push provider, VAPID endpoint + devices `web`, badge/badge_sync, WS heartbeat, `X-Device-ID`, PWA+клиент, prod `provider: webpush`, smoke iPhone |
-
-Критерий Sprint 6: PWA на Home Screen, Web Push на iOS 16.4+, актуальный badge, heartbeat, lint/tests green, VAPID не в git.
+### Sprint 6 — DONE / closing (production polish / PWA)
+PWA на Home Screen, Web Push (VAPID), badge + `badge_sync`, device binding, login username/password, раздача клиента с `/`. Опциональные хвосты (heartbeat demo, known-limitations) — см. чеклист.
 
 Детали: `docs/sprint-6-plan.md`, `docs/sprint-6-checklist.md`.
+
+### Sprint 7 — PLANNED (список чатов / username)
+`GET/POST /api/v1/dialogs`, опционально search users; PWA Home = список диалогов + «Новый чат» по username; без ручного UUID.
+
+Детали: `docs/sprint-7-plan.md`, `docs/sprint-7-checklist.md`, `docs/api-sprint-7.md`.
+
+### Sprint 8 — PLANNED (PWA unlock / WebAuthn)
+Platform passkey (Face ID в установленном PWA); register/assert endpoints; PIN fallback; Capacitor native path не трогаем.
+
+Детали: `docs/sprint-8-plan.md`, `docs/sprint-8-checklist.md`, `docs/api-sprint-8.md`.
+
+### Sprint 9 — PLANNED (message encryption at-rest)
+AES-256-GCM envelope (Вариант A): ciphertext в БД, plaintext только в памяти сервиса и у клиента по TLS. Не E2EE. Hard-delete/purge — вне scope.
+
+Детали: `docs/sprint-9-plan.md`, `docs/sprint-9-checklist.md`, `docs/api-sprint-9.md`.
 
 ---
 
@@ -309,7 +320,7 @@ TTL после read, `message-expirer`, `message_deleted`, rate-limit login, COR
    → баннер установки PWA; проверка `'PushManager' in window`.
 
 2. **Рассинхрон бейджа**  
-   → сервер — источник истины; пересчёт перед send; silent `badge_sync` на другие устройства.
+   → сервер — источник истины; пересчёт перед send; silent `badge_sync` на другие устройства; клиентский `setAppBadge` на WS.
 
 3. **Потеря WS-событий / мёртвые соединения**  
    → heartbeat (Sprint 6); backlog через REST; полноценный event-cursor/replay — known limitation (отложено).
@@ -317,19 +328,26 @@ TTL после read, `message-expirer`, `message_deleted`, rate-limit login, COR
 4. **TTL расходится между устройствами**  
    → authoritative delete на сервере + `message_deleted`.
 
-5. **Клиенты отстают от breaking auth**  
-   → обновление Debug UI / mobile в Sprint 6 §13–14; до этого smoke через curl.
+5. **Ручной dialog UUID в UI**  
+   → Sprint 7: список + create by username.
 
-6. **Устаревший push endpoint**  
+6. **Face ID недоступен в Safari/PWA через Capacitor**  
+   → Sprint 8: WebAuthn platform authenticator; PIN fallback.
+
+7. **Устаревший push endpoint**  
    → HTTP 404/410 → деактивировать подписку в БД.
+
+8. **Plaintext body в дампах БД**  
+   → Sprint 9: at-rest AES-GCM; ключ отдельно от БД; не путать с E2EE.
 
 ---
 
 ## 15) Что делать сейчас (фокус)
 
-1. Закрывать Sprint 6 по чеклисту с §7 (Web Push) вперёд — см. skill `sprint-work`.
-2. Не переоткрывать Sprint 1–5; infra-правки — поверх существующего `deploy/prod/`.
-3. Держать контракты в `docs/api-sprint-6.md` и чеклист синхронными с кодом.
-4. По завершении Sprint 6 — `docs/known-limitations-sprint-6.md` и статус checklist **DONE**.
+1. Закрыть хвосты Sprint 6 (`known-limitations-sprint-6.md`, footer **DONE**), если ещё открыты.
+2. **Sprint 7** — список диалогов / username.
+3. **Sprint 8** — PWA unlock / WebAuthn (ортогонален 9).
+4. **Sprint 9** — at-rest encryption сообщений (после 7; не смешивать с 7/8).
+5. Не переоткрывать Sprint 1–5; infra — поверх `deploy/prod/`.
 
 Операционные скиллы: `.cursor/skills/local-dev`, `prod-deploy`, `sprint-work`.
