@@ -225,6 +225,7 @@ function handleWSMessage(raw: string): void {
       const d = env.data as WSDataBadgeUpdated;
       const countEl = document.getElementById("unread-count");
       if (countEl) countEl.textContent = String(d.unread_count);
+      void syncAppBadge(d.unread_count);
       break;
     }
     default:
@@ -277,6 +278,36 @@ function stopTTLTimer(messageId: string): void {
 function stopAllTTLTimers(): void {
   for (const msgId of ttlTimers.keys()) {
     stopTTLTimer(msgId);
+  }
+}
+
+// --- App icon badge (Badging API, iOS PWA / installed web apps) ---
+
+/**
+ * Синхронизирует бейдж на иконке с числом непрочитанных.
+ * Важно: при открытом чате badge_updated приходит по WS — без этого
+ * вызова иконка остаётся со старым числом (push badge_sync на iOS
+ * с userVisibleOnly ненадёжен без showNotification).
+ */
+async function syncAppBadge(count: number): Promise<void> {
+  const nav = navigator as Navigator & {
+    setAppBadge?: (n?: number) => Promise<void>;
+    clearAppBadge?: () => Promise<void>;
+  };
+  try {
+    if (count > 0) {
+      if (typeof nav.setAppBadge === "function") {
+        await nav.setAppBadge(count);
+      }
+      return;
+    }
+    if (typeof nav.clearAppBadge === "function") {
+      await nav.clearAppBadge();
+    } else if (typeof nav.setAppBadge === "function") {
+      await nav.setAppBadge(0);
+    }
+  } catch {
+    // Unsupported / permission — ignore
   }
 }
 
@@ -424,6 +455,7 @@ async function loadHome(): Promise<void> {
   try {
     const count = await getUnreadCount();
     el("unread-count").textContent = String(count);
+    void syncAppBadge(count);
     setStatus("Загружено");
     log(`GET /me/unread-count → ${count}`);
   } catch (err) {

@@ -5,4 +5,5 @@ package push
 var (
 	BuildPayload                 = buildPayload
 	NewWebPushProviderWithClient = newWebPushProviderWithClient
+	NormalizeVAPIDSubject        = normalizeVAPIDSubject
 )

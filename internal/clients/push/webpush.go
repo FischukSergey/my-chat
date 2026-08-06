@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	webpushlib "github.com/SherClockHolmes/webpush-go"
 )
@@ -13,13 +15,26 @@ import (
 type WebPushConfig struct {
 	VAPIDPrivateKey string
 	VAPIDPublicKey  string
-	// Subject — mailto: или https: URL; обязателен по спецификации VAPID.
+	// Subject — контакт для VAPID JWT claim "sub".
+	// Допустимо: email без схемы (admin@x.com), mailto:..., или https://...
+	// webpush-go сам добавляет "mailto:" к email; передавать mailto:mailto: нельзя
+	// (Apple отвечает 403 BadJwtToken).
 	Subject string
 }
 
 // IsConfigured проверяет, заполнены ли все обязательные поля.
 func (c WebPushConfig) IsConfigured() bool {
 	return c.VAPIDPrivateKey != "" && c.VAPIDPublicKey != "" && c.Subject != ""
+}
+
+// normalizeVAPIDSubject приводит subject к виду, который ждёт webpush-go:
+// https://... оставляем; mailto:email → email (библиотека снова добавит mailto:).
+func normalizeVAPIDSubject(subject string) string {
+	subject = strings.TrimSpace(subject)
+	if strings.HasPrefix(subject, "https:") {
+		return subject
+	}
+	return strings.TrimPrefix(subject, "mailto:")
 }
 
 // WebPushProvider отправляет Web Push уведомления через VAPID.
@@ -31,11 +46,13 @@ type WebPushProvider struct {
 
 // NewWebPushProvider создаёт WebPushProvider с дефолтным HTTP-клиентом.
 func NewWebPushProvider(cfg WebPushConfig) *WebPushProvider {
+	cfg.Subject = normalizeVAPIDSubject(cfg.Subject)
 	return &WebPushProvider{cfg: cfg}
 }
 
 // newWebPushProviderWithClient создаёт WebPushProvider с кастомным HTTP-клиентом (для тестов).
 func newWebPushProviderWithClient(cfg WebPushConfig, client webpushlib.HTTPClient) *WebPushProvider {
+	cfg.Subject = normalizeVAPIDSubject(cfg.Subject)
 	return &WebPushProvider{cfg: cfg, httpClient: client}
 }
 
@@ -111,6 +128,17 @@ func (p *WebPushProvider) Send(ctx context.Context, msg Message) error {
 	case http.StatusNotFound, http.StatusGone:
 		return fmt.Errorf("device %s HTTP %d: %w", msg.Device.ID, resp.StatusCode, ErrSubscriptionGone)
 	default:
+		var detail string
+		if resp.Body != nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			detail = strings.TrimSpace(string(body))
+		}
+		if detail != "" {
+			return fmt.Errorf(
+				"web push server HTTP %d (device %s): %s",
+				resp.StatusCode, msg.Device.ID, detail,
+			)
+		}
 		return fmt.Errorf("web push server HTTP %d (device %s)", resp.StatusCode, msg.Device.ID)
 	}
 }
