@@ -6,9 +6,75 @@
 
 ---
 
+## 0) Утверждённые endpoints
+
+Сервис: `main-service`. Все ниже — за `Authenticate` (кроме уже существующих публичных routes Sprint 6).
+
+| Priority | Method | Path | Назначение |
+|----------|--------|------|------------|
+| Must | `GET` | `/api/v1/dialogs` | Список диалогов caller (`DialogListItem[]`) |
+| Must | `POST` | `/api/v1/dialogs` | Get-or-create 1:1 по `{ "username" }` → один `DialogListItem` |
+| Should | `GET` | `/api/v1/users/search` | Prefix-поиск username для UI «Новый чат» |
+
+Правила регистрации роутов:
+
+- `GET/POST /api/v1/dialogs` — **новые** handlers; не ломать существующие `…/dialogs/{id}/messages`.
+- `GET /api/v1/users/search` — рядом с `POST /api/v1/users/register`, но **только** под auth middleware (register остаётся публичным).
+- Пагинация list — out of scope; query params у `GET /dialogs` нет.
+- Deep link / push по `dialog_id` — без изменений контракта (Sprint 4–6).
+
+---
+
+## 0.1) Коды ошибок
+
+Формат тела без изменений (как Sprint 1–6):
+
+```json
+{
+  "error": {
+    "code": "user_not_found",
+    "message": "user not found",
+    "details": {}
+  }
+}
+```
+
+### Новые / уточнённые коды Sprint 7
+
+| Код | HTTP | Endpoint | Когда |
+|-----|------|----------|--------|
+| `invalid_argument` | 400 | `POST /dialogs` | пустой/`trim`-пустой username; невалидный JSON body |
+| `invalid_argument` | 400 | `GET /users/search` | `q` пустой или `<2` символов после trim/lower; невалидный `limit` |
+| `cannot_dialog_with_self` | 400 | `POST /dialogs` | нормализованный username = текущий user |
+| `user_not_found` | 404 | `POST /dialogs` | пользователь не найден **или** `status != active` (не различать — без enumeration статуса) |
+| `unauthenticated` | 401 | все auth-required | нет/битый access JWT |
+
+Правила:
+
+- Для self-chat — **отдельный** код `cannot_dialog_with_self`, не общий `invalid_argument` (клиент показывает понятное сообщение).
+- Для отсутствующего peer — **`user_not_found`**, не общий `not_found` (как `username_taken` vs `conflict` в Sprint 6).
+- Inactive peer при create трактуется как `user_not_found` (404), не `user_inactive` (тот код остаётся для login своего аккаунта).
+- `GET /dialogs` при успешной auth ошибок бизнес-логики не возвращает (пустой список → `200` + `"dialogs": []`).
+
+Пример `cannot_dialog_with_self`:
+
+```json
+{
+  "error": {
+    "code": "cannot_dialog_with_self",
+    "message": "cannot create dialog with yourself",
+    "details": {}
+  }
+}
+```
+
+---
+
 ## 1) GET /dialogs
 
 Список диалогов текущего пользователя.
+
+**Auth:** required.
 
 **Request:** без body. Query params: нет (пагинация — out of scope).
 
@@ -36,24 +102,40 @@
 }
 ```
 
+**Утверждённый shape элемента** (`DialogListItem`) — единый для `GET /dialogs[]` и `POST /dialogs`:
+
+| Поле | Тип | Обязательность |
+|------|-----|----------------|
+| `dialog_id` | UUID string | всегда |
+| `peer` | `{ user_id, username }` | всегда |
+| `last_message` | object \| `null` | всегда (ключ присутствует; `null`, если сообщений нет) |
+| `last_message.message_id` | UUID string | если `last_message` не `null` |
+| `last_message.sender_id` | UUID string | если `last_message` не `null` |
+| `last_message.body_preview` | string | если `last_message` не `null` |
+| `last_message.created_at` | RFC3339 UTC | если `last_message` не `null` |
+| `unread_count` | int ≥ 0 | всегда |
+| `updated_at` | RFC3339 UTC | всегда |
+
 Правила:
 
 - Только диалоги, где caller ∈ `{user_a_id, user_b_id}`.
-- `peer` — второй участник.
-- `last_message` — `null` / omit, если сообщений нет.
-- `body_preview` — усечённый текст (например ≤120 символов); без ciphertext E2EE (plaintext MVP).
+- `peer` — второй участник (не caller).
+- `last_message` — всегда в JSON как object или `null` (не omit ключа).
+- `body_preview` — усечённый plaintext (≤120 рун, как `chat.BuildPreview`); без ciphertext E2EE.
 - Soft-deleted сообщения не участвуют в preview.
-- `unread_count` — число непрочитанных входящих в этом диалоге для caller.
+- `unread_count` — число непрочитанных **входящих** в этом диалоге для caller.
 - `updated_at` — `max(last_message.created_at, dialog.created_at)`.
-- Сортировка: `updated_at` DESC.
+- Сортировка списка: `updated_at` DESC.
 
-**Errors:** `401` unauthorized.
+**Errors:** `401 unauthenticated` (см. §0.1).
 
 ---
 
 ## 2) POST /dialogs
 
 Создать или получить существующий 1:1 диалог по username собеседника.
+
+**Auth:** required.
 
 **Request:**
 
@@ -84,20 +166,15 @@
 - `GetOrCreate` по канонической паре `(min(user_a), max(user_b))` — существующая реализация.
 - Если диалог уже есть — вернуть его (не 409).
 
-**Errors:**
-
-| HTTP | code | когда |
-|------|------|--------|
-| 400 | `invalid_argument` | пустой username |
-| 400 | `cannot_dialog_with_self` | username = текущий user |
-| 404 | `user_not_found` | пользователь не найден / не active |
-| 401 | — | нет/битый access |
+**Errors:** см. §0.1 (`invalid_argument`, `cannot_dialog_with_self`, `user_not_found`, `unauthenticated`).
 
 ---
 
 ## 3) GET /users/search (Should)
 
 Поиск пользователей для UI «Новый чат».
+
+**Auth:** required. Priority: Should (DoD спринта не блокирует; UI может работать с точным username без search).
 
 **Query:**
 
@@ -122,7 +199,7 @@
 - Без email/phone/других PII.
 - Пустой `q` или `<2` символов → `400 invalid_argument`.
 
-**Errors:** `400`, `401`.
+**Errors:** см. §0.1 (`invalid_argument`, `unauthenticated`).
 
 ---
 

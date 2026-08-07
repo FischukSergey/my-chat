@@ -32,6 +32,20 @@ type Dialog struct {
 	CreatedAt time.Time
 }
 
+// DialogListItem — строка списка диалогов для пользователя (Sprint 7).
+// LastMessage* — nil, если активных сообщений нет. Body — plaintext; truncate в service.
+type DialogListItem struct {
+	DialogID             string
+	PeerUserID           string
+	PeerUsername         string
+	LastMessageID        *string
+	LastMessageSenderID  *string
+	LastMessageBody      *string
+	LastMessageCreatedAt *time.Time
+	UnreadCount          int
+	UpdatedAt            time.Time
+}
+
 // Message представляет сообщение в диалоге.
 type Message struct {
 	ID        string

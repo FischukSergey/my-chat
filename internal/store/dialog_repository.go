@@ -65,6 +65,77 @@ RETURNING id, user_a_id, user_b_id, created_at`
 	return dialog, nil
 }
 
+// ListByUserID возвращает диалоги пользователя с peer, last message и per-dialog unread.
+// Сортировка: updated_at DESC (max(last_message.created_at, dialog.created_at)).
+// Soft-deleted сообщения не участвуют в preview и unread.
+func (r *DialogRepository) ListByUserID(ctx context.Context, userID string) ([]DialogListItem, error) {
+	const query = `
+SELECT
+    d.id,
+    peer.id,
+    peer.username,
+    lm.id,
+    lm.sender_id,
+    lm.body,
+    lm.created_at,
+    COALESCE(uc.unread_count, 0),
+    COALESCE(lm.created_at, d.created_at) AS updated_at
+FROM dialogs d
+JOIN users peer ON peer.id = CASE
+    WHEN d.user_a_id = $1 THEN d.user_b_id
+    ELSE d.user_a_id
+END
+LEFT JOIN LATERAL (
+    SELECT m.id, m.sender_id, m.body, m.created_at
+    FROM messages m
+    WHERE m.dialog_id = d.id AND m.deleted_at IS NULL
+    ORDER BY m.created_at DESC
+    LIMIT 1
+) lm ON TRUE
+LEFT JOIN LATERAL (
+    SELECT COUNT(1)::int AS unread_count
+    FROM messages m
+    LEFT JOIN message_receipts mr ON mr.message_id = m.id AND mr.user_id = $1
+    WHERE m.dialog_id = d.id
+      AND m.sender_id <> $1
+      AND m.deleted_at IS NULL
+      AND mr.read_at IS NULL
+) uc ON TRUE
+WHERE d.user_a_id = $1 OR d.user_b_id = $1
+ORDER BY updated_at DESC`
+
+	rows, err := r.poolDB.Query(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list dialogs by user: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]DialogListItem, 0)
+	for rows.Next() {
+		var item DialogListItem
+		if err = rows.Scan(
+			&item.DialogID,
+			&item.PeerUserID,
+			&item.PeerUsername,
+			&item.LastMessageID,
+			&item.LastMessageSenderID,
+			&item.LastMessageBody,
+			&item.LastMessageCreatedAt,
+			&item.UnreadCount,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan dialog list row: %w", err)
+		}
+		items = append(items, item)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate dialog list rows: %w", err)
+	}
+
+	return items, nil
+}
+
 func normalizeDialogUsers(user1ID, user2ID string) (userAID, userBID string, err error) {
 	if user1ID == "" || user2ID == "" || user1ID == user2ID {
 		return "", "", errInvalidDialogUsers

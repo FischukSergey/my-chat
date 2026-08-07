@@ -14,23 +14,34 @@
 
 ## 1) Подготовка и контракты
 
-- [ ] Утвердить response shape элемента диалога (`dialog_id`, `peer`, `last_message?`, `unread_count`, `updated_at`).
-- [ ] Утвердить `GET /api/v1/dialogs`, `POST /api/v1/dialogs`, опционально `GET /api/v1/users/search`.
-- [ ] Зафиксировать коды ошибок: `user_not_found`, `cannot_dialog_with_self`, `invalid_argument`.
+- [x] Утвердить response shape элемента диалога (`dialog_id`, `peer`, `last_message?`, `unread_count`, `updated_at`).
+
+Примечание: канон — `DialogListItem` в `docs/api-sprint-7.md` §1; `last_message` всегда object|null (не omit); `body_preview` ≤120 рун; тот же shape для POST.
+
+- [x] Утвердить `GET /api/v1/dialogs`, `POST /api/v1/dialogs`, опционально `GET /api/v1/users/search`.
+
+Примечание: канон — `docs/api-sprint-7.md` §0; Must: `GET/POST /api/v1/dialogs` (auth); Should: `GET /api/v1/users/search` (auth); не ломать `…/dialogs/{id}/messages`.
+
+- [x] Зафиксировать коды ошибок: `user_not_found`, `cannot_dialog_with_self`, `invalid_argument`.
+
+Примечание: канон — `docs/api-sprint-7.md` §0.1; self → `cannot_dialog_with_self` (400); missing/inactive peer → `user_not_found` (404); валидация → `invalid_argument` (400); auth → `unauthenticated` (401).
+
 - [x] Подготовить / актуализировать `docs/api-sprint-7.md`.
 
-Примечание: контракты зафиксированы в `docs/api-sprint-7.md` (list/create dialogs, optional users/search).
+Примечание: контракты зафиксированы в `docs/api-sprint-7.md` (list/create dialogs, optional users/search, error codes).
 
 ---
 
 ## 2) Store / репозиторий диалогов
 
-- [ ] `DialogRepository.ListByUserID(ctx, userID)` — диалоги пользователя + peer ids.
-- [ ] Join/загрузка `username` peer из `users`.
-- [ ] Last message preview + timestamp (последнее не soft-deleted сообщение).
-- [ ] Unread count per dialog для текущего user (через receipts / messages).
-- [ ] При необходимости индексы (messages by dialog_id + created_at) — миграция только если explain показывает проблему.
-- [ ] Unit/integration-тесты репозитория.
+- [x] `DialogRepository.ListByUserID(ctx, userID)` — диалоги пользователя + peer ids.
+- [x] Join/загрузка `username` peer из `users`.
+- [x] Last message preview + timestamp (последнее не soft-deleted сообщение).
+- [x] Unread count per dialog для текущего user (через receipts / messages).
+- [x] При необходимости индексы (messages by dialog_id + created_at) — миграция только если explain показывает проблему.
+- [x] Unit/integration-тесты репозитория.
+
+Примечание: один SQL в `ListByUserID` (peer JOIN + LATERAL last message + per-dialog unread, `deleted_at IS NULL`); модель `DialogListItem`; индекс `messages_dialog_created_at_idx` уже есть (003) — миграция не нужна. Тесты: `dialog_repository_integration_test.go`; `task lint` / `task test` / `task test:integration` green.
 
 ---
 
