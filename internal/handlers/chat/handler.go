@@ -23,6 +23,8 @@ type chatService interface {
 	ListMessages(ctx context.Context, userID, dialogID string, limit int, before *time.Time) ([]store.Message, error)
 	MarkRead(ctx context.Context, messageID, userID string, readAt time.Time) error
 	UnreadCount(ctx context.Context, userID string) (int, error)
+	ListDialogs(ctx context.Context, userID string) ([]chatservice.DialogItem, error)
+	CreateDialogByUsername(ctx context.Context, userID, username string) (chatservice.DialogItem, error)
 }
 
 // Handler предоставляет методы для работы с сообщениями.

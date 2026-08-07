@@ -101,6 +101,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	messageTTL := time.Duration(cfg.Chat.MessageTTLSeconds) * time.Second
 	chatSvc := chatservice.NewService(dialogRepo, messageRepo, receiptRepo, connHub, outboxRepo, messageTTL)
 	chatSvc.SetMessageCounter(metrics.MessageSendTotal)
+	chatSvc.SetUsersRepository(userRepo)
 	deviceSvc := deviceservice.NewService(deviceRepo)
 	userSvc := userservice.NewService(userRepo)
 	chatHandler := chathandler.New(chatSvc)
@@ -127,6 +128,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		r.Post("/api/v1/devices/register", deviceHandler.Register)
 		r.Post("/api/v1/devices/unregister", deviceHandler.Unregister)
 
+		r.Get("/api/v1/users/search", userHandler.Search)
+
+		r.Get("/api/v1/dialogs", chatHandler.ListDialogs)
+		r.Post("/api/v1/dialogs", chatHandler.CreateDialog)
 		r.Post("/api/v1/dialogs/{id}/messages", chatHandler.SendMessage)
 		r.Get("/api/v1/dialogs/{id}/messages", chatHandler.ListMessages)
 		r.Post("/api/v1/messages/{id}/read", chatHandler.MarkRead)

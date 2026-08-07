@@ -47,39 +47,47 @@
 
 ## 3) Service + HTTP: список и создание
 
-- [ ] `chat.Service.ListDialogs(ctx, userID)`.
-- [ ] `chat.Service.CreateDialogByUsername(ctx, userID, username)` → FindByUsername + GetOrCreate.
-- [ ] Handler `GET /api/v1/dialogs`.
-- [ ] Handler `POST /api/v1/dialogs` `{ "username" }`.
-- [ ] Зарегистрировать роуты в `mainservice` (auth middleware).
-- [ ] Handler tests: 200, 401, 400 self, 404 missing user, idempotent create.
+- [x] `chat.Service.ListDialogs(ctx, userID)`.
+- [x] `chat.Service.CreateDialogByUsername(ctx, userID, username)` → FindByUsername + GetOrCreate.
+- [x] Handler `GET /api/v1/dialogs`.
+- [x] Handler `POST /api/v1/dialogs` `{ "username" }`.
+- [x] Зарегистрировать роуты в `mainservice` (auth middleware).
+- [x] Handler tests: 200, 401, 400 self, 404 missing user, idempotent create.
+
+Примечание: `ListDialogs` / `CreateDialogByUsername` в `internal/services/chat/dialogs.go`; handlers в `handlers/chat/dialogs.go`; роуты auth-group в `mainservice`. Коды: `invalid_argument` / `cannot_dialog_with_self` / `user_not_found` / `unauthenticated`. Тесты service+handler; `task lint` / `task test` / `task test:integration` green.
 
 ---
 
 ## 4) (Should) Поиск пользователей
 
-- [ ] `GET /api/v1/users/search?q=&limit=` — prefix по username, exclude self, только `active`.
-- [ ] Валидация: `q` минимум 2 символа.
-- [ ] Тесты + подключение в UI автокомплита (если успеваем).
+- [x] `GET /api/v1/users/search?q=&limit=` — prefix по username, exclude self, только `active`.
+- [x] Валидация: `q` минимум 2 символа.
+- [x] Тесты + подключение в UI автокомплита (если успеваем).
+
+Примечание: store `SearchByUsernamePrefix` (`starts_with`); service `Search` (q≥2 рун, limit default 20/max 50); handler auth-route. Клиент: `searchUsers()` в `mobile/src/api.ts` (UI автокомплит — в §5–6). Тесты unit+integration; lint/tests green.
 
 ---
 
 ## 5) Клиент PWA — список чатов
 
-- [ ] `api.ts`: `listDialogs()`, `createDialog(username)`, опционально `searchUsers(q)`.
-- [ ] Home: заменить обязательный UUID-input на список диалогов.
-- [ ] Строка списка: username, preview, unread (если >0).
-- [ ] Тап → `showChat(dialog_id)`; заголовок чата = peer username.
-- [ ] Пустой список: текст + кнопка «Новый чат».
-- [ ] После `loadHome` — refresh списка (и sync app badge как в Sprint 6).
+- [x] `api.ts`: `listDialogs()`, `createDialog(username)`, опционально `searchUsers(q)`.
+- [x] Home: заменить обязательный UUID-input на список диалогов.
+- [x] Строка списка: username, preview, unread (если >0).
+- [x] Тап → `showChat(dialog_id)`; заголовок чата = peer username.
+- [x] Пустой список: текст + кнопка «Новый чат».
+- [x] После `loadHome` — refresh списка (и sync app badge как в Sprint 6).
+
+Примечание: Home = list + unread badge sync; UUID-input убран; заголовок чата = peer.username.
 
 ---
 
 ## 6) Клиент PWA — новый чат
 
-- [ ] UI «Новый чат»: поле username (+ опционально результаты search).
-- [ ] `POST /dialogs` → открыть чат; обработка 404/400 с понятными сообщениями.
-- [ ] Сохранить deep link `/?dialog=` и SW `open_dialog` без ломки.
+- [x] UI «Новый чат»: поле username (+ опционально результаты search).
+- [x] `POST /dialogs` → открыть чат; обработка 404/400 с понятными сообщениями.
+- [x] Сохранить deep link `/?dialog=` и SW `open_dialog` без ломки.
+
+Примечание: экран `new-chat` + debounce `searchUsers`; `ApiError` для user_not_found / cannot_dialog_with_self / invalid_argument; `/?dialog=` и SW `open_dialog` → pending → `showChat` после `loadHome`.
 
 ---
 

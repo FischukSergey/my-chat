@@ -261,6 +261,89 @@ export async function getUnreadCount(): Promise<number> {
   return data.unread_count;
 }
 
+export interface UserSearchHit {
+  user_id: string;
+  username: string;
+}
+
+/** Prefix-поиск пользователей для «Новый чат» (q ≥ 2 символов). */
+export async function searchUsers(q: string, limit = 20): Promise<UserSearchHit[]> {
+  const params = new URLSearchParams({ q, limit: String(limit) });
+  const res = await fetchAuth(`/api/v1/users/search?${params}`);
+  if (!res.ok) throw new Error(`searchUsers: ${res.status}`);
+  const data = (await res.json()) as { users: UserSearchHit[] };
+  return data.users;
+}
+
+// --- Dialogs API (Sprint 7) ---
+
+export interface DialogPeer {
+  user_id: string;
+  username: string;
+}
+
+export interface DialogLastMessage {
+  message_id: string;
+  sender_id: string;
+  body_preview: string;
+  created_at: string;
+}
+
+export interface DialogListItem {
+  dialog_id: string;
+  peer: DialogPeer;
+  last_message: DialogLastMessage | null;
+  unread_count: number;
+  updated_at: string;
+}
+
+export class ApiError extends Error {
+  readonly code: string;
+  readonly status: number;
+
+  constructor(code: string, message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+async function readApiError(res: Response, fallback: string): Promise<ApiError> {
+  const body = await res.json().catch(() => ({ error: {} }));
+  const code = (body as { error?: { code?: string } })?.error?.code ?? "";
+  const msg = (body as { error?: { message?: string } })?.error?.message ?? "";
+  return new ApiError(code || "error", msg || fallback, res.status);
+}
+
+export async function listDialogs(): Promise<DialogListItem[]> {
+  const res = await fetchAuth("/api/v1/dialogs");
+  if (!res.ok) throw await readApiError(res, `listDialogs: ${res.status}`);
+  const data = (await res.json()) as { dialogs: DialogListItem[] };
+  return data.dialogs ?? [];
+}
+
+export async function createDialog(username: string): Promise<DialogListItem> {
+  const res = await fetchAuth("/api/v1/dialogs", {
+    method: "POST",
+    body: JSON.stringify({ username }),
+  });
+  if (!res.ok) {
+    const err = await readApiError(res, `createDialog: ${res.status}`);
+    if (err.code === "user_not_found") {
+      throw new ApiError(err.code, "Пользователь не найден", err.status);
+    }
+    if (err.code === "cannot_dialog_with_self") {
+      throw new ApiError(err.code, "Нельзя начать чат с собой", err.status);
+    }
+    if (err.code === "invalid_argument") {
+      throw new ApiError(err.code, "Введите username", err.status);
+    }
+    throw err;
+  }
+  return res.json() as Promise<DialogListItem>;
+}
+
 // --- Chat API ---
 
 export interface Message {

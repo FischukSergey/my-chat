@@ -6,8 +6,9 @@
  *      ↓ после login
  *   [unlock]   ← есть refresh token (cold start)
  *      ↓ биометрия + refresh
- *   [home]     ← есть актуальный access token
- *      ↓ showChat(dialogId)
+ *   [home]     ← список диалогов
+ *      ↓ новый чат / тап по строке / deep link
+ *   [new-chat] ← username (+ search)
  *   [chat]     ← открытый диалог
  */
 
@@ -27,16 +28,21 @@ import {
   apiLogout,
   apiRefresh,
   apiRegister,
+  createDialog,
   extractUserIdFromJwt,
   getMessages,
   getUnreadCount,
   getVapidPublicKey,
+  listDialogs,
   markRead,
   registerDevice,
+  searchUsers,
   sendMessage,
+  ApiError,
   SessionCompromisedError,
   SessionExpiredError,
   SessionRevokedError,
+  type DialogListItem,
   type Message,
 } from "./api";
 
@@ -48,9 +54,9 @@ function el<T extends HTMLElement>(id: string): T {
   return e as T;
 }
 
-type ScreenName = "login" | "register" | "unlock" | "home" | "chat";
+type ScreenName = "login" | "register" | "unlock" | "home" | "new-chat" | "chat";
 
-const ALL_SCREENS: ScreenName[] = ["login", "register", "unlock", "home", "chat"];
+const ALL_SCREENS: ScreenName[] = ["login", "register", "unlock", "home", "new-chat", "chat"];
 
 function showScreen(name: ScreenName): void {
   for (const s of ALL_SCREENS) {
@@ -340,6 +346,13 @@ function flushPendingMarkRead(): void {
 
 let currentUserId = "";
 let currentDialogId = "";
+let currentPeerUsername = "";
+
+/** dialog_id → peer username (кэш для заголовка / deep link). */
+const dialogPeers = new Map<string, string>();
+
+/** Отложенный dialog_id из /?dialog= или SW open_dialog до готовности сессии. */
+let pendingDialogId = "";
 
 function escHtml(s: string): string {
   return s
@@ -347,6 +360,26 @@ function escHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function rememberDialogPeer(dialogId: string, username: string): void {
+  if (dialogId && username) dialogPeers.set(dialogId, username);
+}
+
+function takePendingDialogFromUrl(): void {
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get("dialog")?.trim() ?? "";
+  if (fromUrl) {
+    pendingDialogId = fromUrl;
+    window.history.replaceState({}, "", window.location.pathname);
+  }
+}
+
+async function openPendingDialogIfAny(): Promise<void> {
+  if (!pendingDialogId) return;
+  const id = pendingDialogId;
+  pendingDialogId = "";
+  await showChat(id, dialogPeers.get(id));
 }
 
 function appendBubble(msg: Message): HTMLElement {
@@ -375,11 +408,15 @@ function scrollToBottom(): void {
   if (listEl) listEl.scrollTop = listEl.scrollHeight;
 }
 
-async function showChat(dialogId: string): Promise<void> {
+async function showChat(dialogId: string, peerUsername?: string): Promise<void> {
   currentDialogId = dialogId;
+  currentPeerUsername = peerUsername || dialogPeers.get(dialogId) || "";
+  if (currentPeerUsername) rememberDialogPeer(dialogId, currentPeerUsername);
 
   const titleEl = document.getElementById("chat-title");
-  if (titleEl) titleEl.textContent = `${dialogId.slice(0, 8)}…`;
+  if (titleEl) {
+    titleEl.textContent = currentPeerUsername || "Чат";
+  }
 
   stopAllTTLTimers();
   el("messages-list").innerHTML = "";
@@ -434,10 +471,125 @@ function handleBackFromChat(): void {
   stopAllTTLTimers();
   pendingMarkRead.clear();
   currentDialogId = "";
+  currentPeerUsername = "";
   void loadHome();
 }
 
 // --- Экран: Home ---
+
+function renderDialogsList(dialogs: DialogListItem[]): void {
+  const listEl = el("dialogs-list");
+  const emptyEl = el("dialogs-empty");
+  listEl.innerHTML = "";
+
+  if (dialogs.length === 0) {
+    listEl.style.display = "none";
+    emptyEl.style.display = "";
+    return;
+  }
+
+  listEl.style.display = "";
+  emptyEl.style.display = "none";
+
+  for (const d of dialogs) {
+    rememberDialogPeer(d.dialog_id, d.peer.username);
+
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "dialog-row";
+    row.dataset.dialogId = d.dialog_id;
+
+    const preview = d.last_message?.body_preview?.trim() || "Нет сообщений";
+    const unread =
+      d.unread_count > 0
+        ? `<span class="dialog-unread">${d.unread_count > 99 ? "99+" : d.unread_count}</span>`
+        : "";
+
+    row.innerHTML = `
+      <div class="dialog-row-main">
+        <div class="dialog-row-name">${escHtml(d.peer.username)}</div>
+        <div class="dialog-row-preview">${escHtml(preview)}</div>
+      </div>
+      ${unread}
+    `;
+    row.addEventListener("click", () => {
+      void showChat(d.dialog_id, d.peer.username);
+    });
+    listEl.appendChild(row);
+  }
+}
+
+function showNewChatScreen(): void {
+  showScreen("new-chat");
+  setStatus("");
+  const input = el<HTMLInputElement>("new-chat-username");
+  input.value = "";
+  el("search-results").innerHTML = "";
+  input.focus();
+}
+
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleUserSearch(): void {
+  if (searchTimer !== null) clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => void runUserSearch(), 250);
+}
+
+async function runUserSearch(): Promise<void> {
+  const q = el<HTMLInputElement>("new-chat-username").value.trim();
+  const resultsEl = el("search-results");
+  resultsEl.innerHTML = "";
+  if (q.length < 2) return;
+
+  try {
+    const users = await searchUsers(q);
+    for (const u of users) {
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = u.username;
+      btn.addEventListener("click", () => {
+        el<HTMLInputElement>("new-chat-username").value = u.username;
+        resultsEl.innerHTML = "";
+        void handleCreateDialog();
+      });
+      li.appendChild(btn);
+      resultsEl.appendChild(li);
+    }
+  } catch (err) {
+    log(`ERR searchUsers: ${String(err)}`);
+  }
+}
+
+async function handleCreateDialog(): Promise<void> {
+  const username = el<HTMLInputElement>("new-chat-username").value.trim();
+  if (!username) {
+    setStatus("Введите username", true);
+    return;
+  }
+
+  setStatus("Создание чата...");
+  try {
+    const item = await createDialog(username);
+    rememberDialogPeer(item.dialog_id, item.peer.username);
+    log(`POST /dialogs → ${item.dialog_id} peer=${item.peer.username}`);
+    setStatus("");
+    await showChat(item.dialog_id, item.peer.username);
+  } catch (err) {
+    if (
+      err instanceof SessionCompromisedError ||
+      err instanceof SessionExpiredError ||
+      err instanceof SessionRevokedError
+    ) {
+      await clearAllTokens();
+      showLoginScreen();
+      return;
+    }
+    const msg = err instanceof ApiError || err instanceof Error ? err.message : String(err);
+    setStatus(msg, true);
+    log(`ERR createDialog: ${msg}`);
+  }
+}
 
 async function loadHome(): Promise<void> {
   showScreen("home");
@@ -453,11 +605,13 @@ async function loadHome(): Promise<void> {
   void subscribePush();
 
   try {
-    const count = await getUnreadCount();
+    const [count, dialogs] = await Promise.all([getUnreadCount(), listDialogs()]);
     el("unread-count").textContent = String(count);
     void syncAppBadge(count);
-    setStatus("Загружено");
-    log(`GET /me/unread-count → ${count}`);
+    renderDialogsList(dialogs);
+    setStatus(dialogs.length === 0 ? "Нет чатов" : "Загружено");
+    log(`GET /dialogs → ${dialogs.length}; unread → ${count}`);
+    await openPendingDialogIfAny();
   } catch (err) {
     if (
       err instanceof SessionCompromisedError ||
@@ -778,7 +932,11 @@ function initPWA(): void {
     navigator.serviceWorker.addEventListener("message", (ev) => {
       const msg = ev.data as { type?: string; dialog_id?: string } | undefined;
       if (msg?.type === "open_dialog" && msg.dialog_id) {
-        void showChat(msg.dialog_id);
+        if (currentUserId) {
+          void showChat(msg.dialog_id, dialogPeers.get(msg.dialog_id));
+        } else {
+          pendingDialogId = msg.dialog_id;
+        }
       }
     });
   }
@@ -851,13 +1009,15 @@ async function init(): Promise<void> {
   // Home screen
   el("btn-logout").addEventListener("click", () => void handleLogout());
   el("btn-refresh-count").addEventListener("click", () => void loadHome());
-  el("btn-open-chat").addEventListener("click", () => {
-    const dialogId = el<HTMLInputElement>("dialog-id-input").value.trim();
-    if (!dialogId) {
-      setStatus("Введите Dialog ID", true);
-      return;
-    }
-    void showChat(dialogId);
+  el("btn-new-chat").addEventListener("click", showNewChatScreen);
+  el("btn-new-chat-empty").addEventListener("click", showNewChatScreen);
+
+  // New chat screen
+  el("btn-create-dialog").addEventListener("click", () => void handleCreateDialog());
+  el("btn-new-chat-back").addEventListener("click", () => void loadHome());
+  el("new-chat-username").addEventListener("input", scheduleUserSearch);
+  el("new-chat-username").addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") void handleCreateDialog();
   });
 
   // Chat screen
@@ -876,6 +1036,9 @@ async function init(): Promise<void> {
 
   // Кнопки PWA-баннера
   initInstallBannerButtons();
+
+  // Deep link /?dialog= (SW notificationclick / openWindow)
+  takePendingDialogFromUrl();
 
   // Проверка biometric availability
   const biometricOk = await isBiometricAvailable();

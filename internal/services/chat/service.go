@@ -42,6 +42,7 @@ type Service struct {
 	dialogs  dialogRepository
 	messages messageRepository
 	receipts receiptRepository
+	users    userRepository
 	notifier notifier
 	outbox   outboxPublisher
 	ttl      time.Duration // 0 = сообщения не истекают
@@ -50,6 +51,8 @@ type Service struct {
 
 type dialogRepository interface {
 	GetByID(ctx context.Context, dialogID string) (store.Dialog, error)
+	GetOrCreate(ctx context.Context, dialogID, user1ID, user2ID string) (store.Dialog, error)
+	ListByUserID(ctx context.Context, userID string) ([]store.DialogListItem, error)
 }
 
 type messageRepository interface {
@@ -97,6 +100,11 @@ func NewService(
 // Должен вызываться до запуска сервиса.
 func (s *Service) SetMessageCounter(c messageCounter) {
 	s.msgCount = c
+}
+
+// SetUsersRepository задаёт репозиторий пользователей (нужен для CreateDialogByUsername).
+func (s *Service) SetUsersRepository(users userRepository) {
+	s.users = users
 }
 
 // SendMessage создает сообщение и подготавливает receipt для второго участника.
