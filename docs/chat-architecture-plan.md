@@ -3,7 +3,7 @@
 Документ — living architecture: цели, принятые решения и фактическое устройство системы.  
 Детальные задачи и DoD — в `docs/sprint-N-plan.md` / `docs/sprint-N-checklist.md`. Контракты API — в `docs/api-sprint-N.md`.
 
-**Статус (2026-08):** спринты **1–5 DONE**; **Sprint 6** функционально закрыт. Далее: **7** (список чатов) → **8** (PWA unlock) и **9** (at-rest encryption сообщений; после 7, ортогонален 8). Prod: **https://beepru.ru**.
+**Статус (2026-08):** спринты **1–7 DONE** (Sprint 6 функционально закрыт). Далее: **8** (PWA unlock / WebAuthn) и **9** (at-rest encryption сообщений; после 7, ортогонален 8). Prod: **https://beepru.ru**.
 
 ---
 
@@ -297,8 +297,8 @@ PWA на Home Screen, Web Push (VAPID), badge + `badge_sync`, device binding, lo
 
 Детали: `docs/sprint-6-plan.md`, `docs/sprint-6-checklist.md`.
 
-### Sprint 7 — PLANNED (список чатов / username)
-`GET/POST /api/v1/dialogs`, опционально search users; PWA Home = список диалогов + «Новый чат» по username; без ручного UUID.
+### Sprint 7 — DONE (список чатов / username)
+`GET/POST /api/v1/dialogs`, `GET /users/search` (Should); PWA Home = список + «Новый чат» по username; без ручного UUID. WS `message_new` вне открытого чата → refresh списка. Known limitations: `docs/known-limitations-sprint-7.md`.
 
 Детали: `docs/sprint-7-plan.md`, `docs/sprint-7-checklist.md`, `docs/api-sprint-7.md`.
 
@@ -329,7 +329,7 @@ AES-256-GCM envelope (Вариант A): ciphertext в БД, plaintext толь�
    → authoritative delete на сервере + `message_deleted`.
 
 5. **Ручной dialog UUID в UI**  
-   → Sprint 7: список + create by username.
+   → закрыто в Sprint 7 (список + create by username).
 
 6. **Face ID недоступен в Safari/PWA через Capacitor**  
    → Sprint 8: WebAuthn platform authenticator; PIN fallback.
@@ -344,10 +344,9 @@ AES-256-GCM envelope (Вариант A): ciphertext в БД, plaintext толь�
 
 ## 15) Что делать сейчас (фокус)
 
-1. Закрыть хвосты Sprint 6 (`known-limitations-sprint-6.md`, footer **DONE**), если ещё открыты.
-2. **Sprint 7** — список диалогов / username.
-3. **Sprint 8** — PWA unlock / WebAuthn (ортогонален 9).
-4. **Sprint 9** — at-rest encryption сообщений (после 7; не смешивать с 7/8).
-5. Не переоткрывать Sprint 1–5; infra — поверх `deploy/prod/`.
+1. **Sprint 8** — PWA unlock / WebAuthn (ортогонален 9).
+2. **Sprint 9** — at-rest encryption сообщений (после 7; не смешивать с 7/8).
+3. Хвосты Sprint 6/7 known-limitations — по приоритету (unregister devices, CountUnread vs deleted_at).
+4. Не переоткрывать Sprint 1–5; infra — поверх `deploy/prod/`.
 
 Операционные скиллы: `.cursor/skills/local-dev`, `prod-deploy`, `sprint-work`.
