@@ -77,7 +77,7 @@
 - [x] Пустой список: текст + кнопка «Новый чат».
 - [x] После `loadHome` — refresh списка (и sync app badge как в Sprint 6).
 
-Примечание: Home = list + unread badge sync; UUID-input убран; заголовок чата = peer.username.
+Примечание: Home = list + unread badge sync; UUID-input убран; заголовок чата = peer.username. При `message_new` / `message_deleted` вне открытого чата — debounced `refreshHomeData` (list+unread), без polling.
 
 ---
 
