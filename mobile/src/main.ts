@@ -184,6 +184,37 @@ interface WSDataBadgeUpdated {
   unread_count: number;
 }
 
+/** Debounced refresh списка чатов + unread (без смены экрана). */
+let homeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleHomeRefresh(): void {
+  if (homeRefreshTimer !== null) clearTimeout(homeRefreshTimer);
+  homeRefreshTimer = setTimeout(() => {
+    homeRefreshTimer = null;
+    void refreshHomeData();
+  }, 400);
+}
+
+/**
+ * Обновляет список диалогов и badge, не переключая экран.
+ * Нужен при message_new, когда открыт Home / другой чат (push при online WS не шлётся).
+ */
+async function refreshHomeData(): Promise<void> {
+  const listEl = document.getElementById("dialogs-list");
+  if (!listEl) return;
+
+  try {
+    const [count, dialogs] = await Promise.all([getUnreadCount(), listDialogs()]);
+    const countEl = document.getElementById("unread-count");
+    if (countEl) countEl.textContent = String(count);
+    void syncAppBadge(count);
+    renderDialogsList(dialogs);
+    log(`WS refresh home: dialogs=${dialogs.length}, unread=${count}`);
+  } catch (err) {
+    log(`ERR refreshHomeData: ${String(err)}`);
+  }
+}
+
 function handleWSMessage(raw: string): void {
   let env: HubEnvelope;
   try {
@@ -211,6 +242,9 @@ function handleWSMessage(raw: string): void {
         if (msg.sender_id !== currentUserId) {
           tryMarkRead(msg.id);
         }
+      } else {
+        // Home / другой чат: push не придёт (WS online) — обновляем список и unread.
+        scheduleHomeRefresh();
       }
       break;
     }
@@ -225,6 +259,10 @@ function handleWSMessage(raw: string): void {
       stopTTLTimer(d.message_id);
       const bubbleEl = document.querySelector<HTMLElement>(`[data-msg-id="${d.message_id}"]`);
       if (bubbleEl) bubbleEl.style.display = "none";
+      // Preview в списке мог ссылаться на удалённое — подтянуть актуальное.
+      if (!currentDialogId || d.dialog_id !== currentDialogId) {
+        scheduleHomeRefresh();
+      }
       break;
     }
     case "badge_updated": {
