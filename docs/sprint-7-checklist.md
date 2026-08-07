@@ -93,10 +93,12 @@
 
 ## 7) Тесты и качество
 
-- [ ] Unit service/handler для list + create.
-- [ ] Integration: register/login A+B → create by username → list → send message.
-- [ ] `task fmt`, `task lint`, `task test`, `task test:integration`.
-- [ ] Smoke prod: два аккаунта, чат по username, список с обеих сторон.
+- [x] Unit service/handler для list + create.
+- [x] Integration: register/login A+B → create by username → list → send message.
+- [x] `task fmt`, `task lint`, `task test`, `task test:integration`.
+- [x] Smoke prod: два аккаунта, чат по username, список с обеих сторон.
+
+Примечание: unit — `services/chat/service_test.go` + `handlers/chat/handler_test.go`; E2E integration — `TestIntegration_RegisterCreateListSend`. `task fmt` / `lint` / `test` / `test:integration` green. Smoke **local** (`task local:up` + seed alice/bob): login → POST /dialogs → list с обеих сторон → send → bob видит preview+unread. Повтор на beepru.ru — после deploy.
 
 ---
 

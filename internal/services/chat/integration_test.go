@@ -6,13 +6,17 @@ package chat_test
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
+	authsvc "my-chat/internal/services/auth"
 	chat "my-chat/internal/services/chat"
+	usersvc "my-chat/internal/services/user"
 	"my-chat/internal/store"
 )
 
@@ -304,5 +308,136 @@ func TestIntegration_ReadSynchronizesUnreadBadge(t *testing.T) {
 	}
 	if unread != 2 {
 		t.Errorf("expected 2 unread after idempotent read, got %d", unread)
+	}
+}
+
+// TestIntegration_RegisterCreateListSend — Sprint 7 E2E на уровне сервисов:
+// register A+B → login → create dialog by username → list с обеих сторон → send message.
+func TestIntegration_RegisterCreateListSend(t *testing.T) {
+	t.Parallel()
+
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+
+	ctx := context.Background()
+
+	s, err := store.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect to db: %v", err)
+	}
+	t.Cleanup(s.Close)
+
+	if _, err = s.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	userRepo := store.NewUserRepository(s)
+	dialogRepo := store.NewDialogRepository(s)
+	messageRepo := store.NewMessageRepository(s)
+	receiptRepo := store.NewReceiptRepository(s)
+	sessionRepo := store.NewAuthSessionRepository(s)
+
+	regSvc := usersvc.NewService(userRepo)
+	authSvc := authsvc.NewService(sessionRepo, userRepo, authsvc.Config{
+		JWTSecret:       "integration-test-secret",
+		AccessTokenTTL:  15 * time.Minute,
+		RefreshTokenTTL: 7 * 24 * time.Hour,
+	}, slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})))
+
+	chatSvc := chat.NewService(dialogRepo, messageRepo, receiptRepo, noopNotifier(), noopOutbox(), 0)
+	chatSvc.SetUsersRepository(userRepo)
+
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
+	aliceName := "alice_" + suffix
+	bobName := "bob_" + suffix
+	password := "secret99"
+
+	alice, err := regSvc.Register(ctx, aliceName, password)
+	if err != nil {
+		t.Fatalf("register alice: %v", err)
+	}
+	bob, err := regSvc.Register(ctx, bobName, password)
+	if err != nil {
+		t.Fatalf("register bob: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanCtx := context.Background()
+		_, _ = s.DB().Exec(cleanCtx, "DELETE FROM auth_sessions WHERE user_id IN ($1, $2)", alice.ID, bob.ID)
+		_, _ = s.DB().Exec(cleanCtx, "DELETE FROM dialogs WHERE user_a_id IN ($1, $2) OR user_b_id IN ($1, $2)", alice.ID, bob.ID)
+		_, _ = s.DB().Exec(cleanCtx, "DELETE FROM users WHERE id IN ($1, $2)", alice.ID, bob.ID)
+	})
+
+	if _, err = authSvc.Login(ctx, aliceName, password, nil); err != nil {
+		t.Fatalf("login alice: %v", err)
+	}
+	if _, err = authSvc.Login(ctx, bobName, password, nil); err != nil {
+		t.Fatalf("login bob: %v", err)
+	}
+
+	created, err := chatSvc.CreateDialogByUsername(ctx, alice.ID, bobName)
+	if err != nil {
+		t.Fatalf("CreateDialogByUsername: %v", err)
+	}
+	if created.DialogID == "" || created.Peer.Username != bobName {
+		t.Fatalf("unexpected create result: %+v", created)
+	}
+	if created.LastMessage != nil {
+		t.Error("new dialog must have null last_message")
+	}
+
+	// Idempotent create.
+	again, err := chatSvc.CreateDialogByUsername(ctx, alice.ID, strings.ToUpper(bobName[:1])+bobName[1:])
+	if err != nil {
+		t.Fatalf("idempotent create: %v", err)
+	}
+	if again.DialogID != created.DialogID {
+		t.Errorf("idempotent dialog_id: want %q, got %q", created.DialogID, again.DialogID)
+	}
+
+	aliceList, err := chatSvc.ListDialogs(ctx, alice.ID)
+	if err != nil {
+		t.Fatalf("ListDialogs alice: %v", err)
+	}
+	if len(aliceList) != 1 || aliceList[0].Peer.Username != bobName {
+		t.Fatalf("alice list: %+v", aliceList)
+	}
+
+	bobList, err := chatSvc.ListDialogs(ctx, bob.ID)
+	if err != nil {
+		t.Fatalf("ListDialogs bob: %v", err)
+	}
+	if len(bobList) != 1 || bobList[0].Peer.Username != aliceName {
+		t.Fatalf("bob list: %+v", bobList)
+	}
+
+	msg, err := chatSvc.SendMessage(ctx, store.Message{
+		ID:       uuid.NewString(),
+		DialogID: created.DialogID,
+		SenderID: alice.ID,
+		Body:     "hello sprint7",
+	})
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+
+	bobList, err = chatSvc.ListDialogs(ctx, bob.ID)
+	if err != nil {
+		t.Fatalf("ListDialogs bob after send: %v", err)
+	}
+	if len(bobList) != 1 {
+		t.Fatalf("bob list len: want 1, got %d", len(bobList))
+	}
+	item := bobList[0]
+	if item.LastMessage == nil || item.LastMessage.BodyPreview != "hello sprint7" {
+		t.Errorf("bob last_message: %+v", item.LastMessage)
+	}
+	if item.UnreadCount != 1 {
+		t.Errorf("bob unread: want 1, got %d", item.UnreadCount)
+	}
+	if item.LastMessage != nil && item.LastMessage.MessageID != msg.ID {
+		t.Errorf("last message id: want %q, got %q", msg.ID, item.LastMessage.MessageID)
 	}
 }
