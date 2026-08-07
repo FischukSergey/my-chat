@@ -98,3 +98,48 @@ WHERE id = $1`
 
 	return u, nil
 }
+
+// SearchByUsernamePrefix возвращает active-пользователей с username по prefix (case-insensitive).
+// Исключает excludeUserID и пустые username. Сортировка: username ASC.
+func (r *UserRepository) SearchByUsernamePrefix(
+	ctx context.Context,
+	prefix, excludeUserID string,
+	limit int,
+) ([]User, error) {
+	const query = `
+SELECT id, status, username, password_hash, created_at
+FROM users
+WHERE status = 'active'
+  AND username <> ''
+  AND id <> $2
+  AND starts_with(lower(username), lower($1))
+ORDER BY username ASC
+LIMIT $3`
+
+	rows, err := r.poolDB.Query(ctx, query, prefix, excludeUserID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search users by username prefix: %w", err)
+	}
+	defer rows.Close()
+
+	users := make([]User, 0, limit)
+	for rows.Next() {
+		var u User
+		if err = rows.Scan(
+			&u.ID,
+			&u.Status,
+			&u.Username,
+			&u.PasswordHash,
+			&u.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan user search row: %w", err)
+		}
+		users = append(users, u)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user search rows: %w", err)
+	}
+
+	return users, nil
+}

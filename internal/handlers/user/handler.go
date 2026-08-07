@@ -13,6 +13,7 @@ import (
 
 type userService interface {
 	Register(ctx context.Context, username, password string) (store.User, error)
+	Search(ctx context.Context, excludeUserID, q string, limit int) ([]usersvc.SearchHit, error)
 }
 
 // Handler предоставляет метод регистрации нового пользователя.

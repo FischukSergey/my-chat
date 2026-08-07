@@ -11,25 +11,41 @@ import (
 	"testing"
 
 	"my-chat/internal/handlers/user"
+	"my-chat/internal/middleware"
 	usersvc "my-chat/internal/services/user"
 	"my-chat/internal/store"
 )
 
 const (
-	testUsername = "alice"
-	testPassword = "secret99"
-	keyUsername  = "username"
-	keyPassword  = "password"
+	testUsername   = "alice"
+	testPassword   = "secret99"
+	keyUsername    = "username"
+	keyPassword    = "password"
+	testCallerID   = "11111111-1111-1111-1111-111111111111"
+	searchPath     = "/api/v1/users/search"
+	codeInvalidArg = "invalid_argument"
 )
 
 // --- mock ---
 
 type mockUserSvc struct {
 	registerFn func(ctx context.Context, username, password string) (store.User, error)
+	searchFn   func(ctx context.Context, excludeUserID, q string, limit int) ([]usersvc.SearchHit, error)
 }
 
 func (m *mockUserSvc) Register(ctx context.Context, username, password string) (store.User, error) {
 	return m.registerFn(ctx, username, password)
+}
+
+func (m *mockUserSvc) Search(
+	ctx context.Context,
+	excludeUserID, q string,
+	limit int,
+) ([]usersvc.SearchHit, error) {
+	if m.searchFn == nil {
+		return nil, errors.New("Search not stubbed")
+	}
+	return m.searchFn(ctx, excludeUserID, q, limit)
 }
 
 // --- helpers ---
@@ -136,8 +152,8 @@ func TestRegister_PasswordTooShort_400(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
 	}
-	if code := decodeError(t, rec.Body); code != "invalid_argument" {
-		t.Errorf("expected code=invalid_argument, got %q", code)
+	if code := decodeError(t, rec.Body); code != codeInvalidArg {
+		t.Errorf("expected code=%s, got %q", codeInvalidArg, code)
 	}
 }
 
@@ -159,8 +175,8 @@ func TestRegister_InvalidUsername_400(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
 	}
-	if code := decodeError(t, rec.Body); code != "invalid_argument" {
-		t.Errorf("expected code=invalid_argument, got %q", code)
+	if code := decodeError(t, rec.Body); code != codeInvalidArg {
+		t.Errorf("expected code=%s, got %q", codeInvalidArg, code)
 	}
 }
 
@@ -198,5 +214,96 @@ func TestRegister_ServiceError_500(t *testing.T) {
 	}
 	if code := decodeError(t, rec.Body); code != "internal" {
 		t.Errorf("expected code=internal, got %q", code)
+	}
+}
+
+func TestSearch_200(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockUserSvc{
+		searchFn: func(_ context.Context, excludeUserID, q string, limit int) ([]usersvc.SearchHit, error) {
+			if excludeUserID != testCallerID || q != "bo" || limit != 10 {
+				t.Errorf("args: exclude=%q q=%q limit=%d", excludeUserID, q, limit)
+			}
+			return []usersvc.SearchHit{
+				{UserID: "u1", Username: "bob"},
+			}, nil
+		},
+	}
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, searchPath+"?q=bo&limit=10", nil)
+	req = req.WithContext(middleware.ContextWithUserID(req.Context(), testCallerID))
+	rec := httptest.NewRecorder()
+
+	user.New(svc).Search(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Users []struct {
+			UserID   string `json:"user_id"`
+			Username string `json:"username"`
+		} `json:"users"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Users) != 1 || resp.Users[0].Username != "bob" {
+		t.Errorf("unexpected users: %+v", resp.Users)
+	}
+}
+
+func TestSearch_401(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, searchPath+"?q=bo", nil)
+	rec := httptest.NewRecorder()
+
+	user.New(&mockUserSvc{}).Search(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status: want 401, got %d", rec.Code)
+	}
+}
+
+func TestSearch_400_ShortQuery(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockUserSvc{
+		searchFn: func(_ context.Context, _, _ string, _ int) ([]usersvc.SearchHit, error) {
+			return nil, usersvc.ErrInvalidSearchQuery
+		},
+	}
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, searchPath+"?q=a", nil)
+	req = req.WithContext(middleware.ContextWithUserID(req.Context(), testCallerID))
+	rec := httptest.NewRecorder()
+
+	user.New(svc).Search(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: want 400, got %d", rec.Code)
+	}
+	if code := decodeError(t, rec.Body); code != codeInvalidArg {
+		t.Errorf("code: want %s, got %q", codeInvalidArg, code)
+	}
+}
+
+func TestSearch_400_InvalidLimit(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, searchPath+"?q=bo&limit=xyz", nil)
+	req = req.WithContext(middleware.ContextWithUserID(req.Context(), testCallerID))
+	rec := httptest.NewRecorder()
+
+	user.New(&mockUserSvc{}).Search(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: want 400, got %d", rec.Code)
+	}
+	if code := decodeError(t, rec.Body); code != codeInvalidArg {
+		t.Errorf("code: want %s, got %q", codeInvalidArg, code)
 	}
 }

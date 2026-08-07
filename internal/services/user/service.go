@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -23,15 +24,28 @@ var ErrInvalidUsername = errors.New("username must be 3–50 characters: latin l
 // ErrPasswordTooShort возвращается, если пароль короче минимального.
 var ErrPasswordTooShort = errors.New("password must be at least 8 characters")
 
+// ErrInvalidSearchQuery возвращается, если q короче 2 символов.
+var ErrInvalidSearchQuery = errors.New("search query must be at least 2 characters")
+
 const (
-	bcryptCost  = 12
-	minPassword = 8
+	bcryptCost       = 12
+	minPassword      = 8
+	minSearchRunes   = 2
+	defaultSearchLim = 20
+	maxSearchLimit   = 50
 )
 
 var usernameRe = regexp.MustCompile(`^[a-zA-Z0-9_]{3,50}$`)
 
+// SearchHit — публичный результат поиска (без PII).
+type SearchHit struct {
+	UserID   string
+	Username string
+}
+
 type userRepository interface {
 	Create(ctx context.Context, u store.User) (store.User, error)
+	SearchByUsernamePrefix(ctx context.Context, prefix, excludeUserID string, limit int) ([]store.User, error)
 }
 
 // Service управляет регистрацией пользователей.
@@ -80,4 +94,34 @@ func (s *Service) Register(ctx context.Context, username, password string) (stor
 	}
 
 	return created, nil
+}
+
+// Search ищет active-пользователей по prefix username.
+// excludeUserID — текущий caller (исключается из результатов).
+// limit: 0/отрицательный → 20; больше 50 → 50.
+func (s *Service) Search(ctx context.Context, excludeUserID, q string, limit int) ([]SearchHit, error) {
+	q = strings.ToLower(strings.TrimSpace(q))
+	if utf8.RuneCountInString(q) < minSearchRunes {
+		return nil, ErrInvalidSearchQuery
+	}
+
+	if limit <= 0 {
+		limit = defaultSearchLim
+	}
+	limit = min(limit, maxSearchLimit)
+
+	users, err := s.repo.SearchByUsernamePrefix(ctx, q, excludeUserID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search users: %w", err)
+	}
+
+	hits := make([]SearchHit, 0, len(users))
+	for _, u := range users {
+		hits = append(hits, SearchHit{
+			UserID:   u.ID,
+			Username: u.Username,
+		})
+	}
+
+	return hits, nil
 }

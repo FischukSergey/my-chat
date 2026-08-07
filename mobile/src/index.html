@@ -103,8 +103,120 @@
       resize: vertical; background: #fafafa;
     }
 
-    /* Home — dialog id input */
-    .home-divider { height: 1px; background: #e5e5ea; margin: 20px 0 4px; }
+    /* Home — dialogs list */
+    .home-card { max-width: 420px; }
+    .home-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .home-top h1 { margin-bottom: 0; }
+    .btn-compact {
+      width: auto;
+      margin-top: 0;
+      padding: 10px 14px;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .home-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+    .btn-link {
+      width: auto;
+      margin: 0;
+      padding: 0;
+      background: none;
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .dialogs-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 16px;
+      max-height: 50vh;
+      overflow-y: auto;
+    }
+    .dialog-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      text-align: left;
+      margin: 0;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: var(--bg);
+      border: none;
+      cursor: pointer;
+      font-weight: 400;
+    }
+    .dialog-row:active { opacity: .8; }
+    .dialog-row-main { flex: 1; min-width: 0; }
+    .dialog-row-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .dialog-row-preview {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .dialog-unread {
+      min-width: 22px;
+      height: 22px;
+      padding: 0 6px;
+      border-radius: 11px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .dialogs-empty {
+      text-align: center;
+      padding: 28px 8px 16px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+    .dialogs-empty p { margin-bottom: 4px; }
+    .search-results {
+      list-style: none;
+      margin: 8px 0 0;
+      padding: 0;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+    .search-results li button {
+      width: 100%;
+      margin: 0;
+      margin-top: 4px;
+      padding: 10px 12px;
+      text-align: left;
+      background: var(--bg);
+      color: var(--text);
+      font-weight: 500;
+      border-radius: 10px;
+    }
 
     /* Chat screen */
     #chat.active {
@@ -341,30 +453,50 @@
 
     <!-- ===== Home screen ===== -->
     <div id="home" class="screen">
-      <div class="card">
-        <h1>my-chat</h1>
-        <p class="subtitle">Добро пожаловать</p>
-
-        <div class="unread-block">
-          <div id="unread-count" class="unread-number">—</div>
-          <div class="unread-label">непрочитанных сообщений</div>
+      <div class="card home-card">
+        <div class="home-top">
+          <div>
+            <h1>my-chat</h1>
+            <p class="subtitle" style="margin-bottom:0">Чаты</p>
+          </div>
+          <button id="btn-new-chat" class="btn-primary btn-compact" type="button">Новый чат</button>
         </div>
 
-        <button id="btn-refresh-count" class="btn-secondary">Обновить</button>
+        <div class="home-meta">
+          <span>Непрочитано: <strong id="unread-count">—</strong></span>
+          <button id="btn-refresh-count" class="btn-link" type="button">Обновить</button>
+        </div>
 
-        <div class="home-divider"></div>
-        <label for="dialog-id-input">Dialog ID</label>
+        <div id="dialogs-list" class="dialogs-list" aria-label="Список чатов"></div>
+        <div id="dialogs-empty" class="dialogs-empty" style="display:none">
+          <p>Пока нет чатов</p>
+          <p>Начните переписку по username</p>
+          <button id="btn-new-chat-empty" class="btn-primary" type="button">Новый чат</button>
+        </div>
+
+        <button id="btn-logout" class="btn-danger" type="button">Выйти</button>
+      </div>
+    </div>
+
+    <!-- ===== New chat screen ===== -->
+    <div id="new-chat" class="screen">
+      <div class="card">
+        <h1>Новый чат</h1>
+        <p class="subtitle">Укажите username существующего пользователя</p>
+
+        <label for="new-chat-username">Username</label>
         <input
-          id="dialog-id-input"
+          id="new-chat-username"
           type="text"
-          placeholder="UUID диалога"
+          placeholder="bob"
           autocomplete="off"
           autocapitalize="none"
           spellcheck="false"
         />
-        <button id="btn-open-chat" class="btn-primary">Открыть чат</button>
+        <ul id="search-results" class="search-results"></ul>
 
-        <button id="btn-logout" class="btn-danger">Выйти</button>
+        <button id="btn-create-dialog" class="btn-primary" type="button">Начать чат</button>
+        <button id="btn-new-chat-back" class="btn-secondary" type="button">Назад</button>
       </div>
     </div>
 

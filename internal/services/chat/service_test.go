@@ -25,16 +25,48 @@ const (
 	msgID1    = "msg-1"
 	msgBody   = "hello"
 	msgBodyNL = "hello world"
+
+	statusActive   = "active"
+	peerUsername   = "bob"
+	sharedDialogID = "d-shared"
+	blockedUser    = "blocked"
 )
 
 // --- mock types ---
 
 type mockDialogRepo struct {
-	getByIDFn func(ctx context.Context, dialogID string) (store.Dialog, error)
+	getByIDFn      func(ctx context.Context, dialogID string) (store.Dialog, error)
+	getOrCreateFn  func(ctx context.Context, dialogID, user1ID, user2ID string) (store.Dialog, error)
+	listByUserIDFn func(ctx context.Context, userID string) ([]store.DialogListItem, error)
 }
 
 func (m *mockDialogRepo) GetByID(ctx context.Context, dialogID string) (store.Dialog, error) {
 	return m.getByIDFn(ctx, dialogID)
+}
+
+func (m *mockDialogRepo) GetOrCreate(ctx context.Context, dialogID, user1ID, user2ID string) (store.Dialog, error) {
+	if m.getOrCreateFn == nil {
+		return store.Dialog{}, errors.New("GetOrCreate not stubbed")
+	}
+	return m.getOrCreateFn(ctx, dialogID, user1ID, user2ID)
+}
+
+func (m *mockDialogRepo) ListByUserID(ctx context.Context, userID string) ([]store.DialogListItem, error) {
+	if m.listByUserIDFn == nil {
+		return nil, errors.New("ListByUserID not stubbed")
+	}
+	return m.listByUserIDFn(ctx, userID)
+}
+
+type mockUserRepo struct {
+	findByUsernameFn func(ctx context.Context, username string) (store.User, error)
+}
+
+func (m *mockUserRepo) FindByUsername(ctx context.Context, username string) (store.User, error) {
+	if m.findByUsernameFn == nil {
+		return store.User{}, errors.New("FindByUsername not stubbed")
+	}
+	return m.findByUsernameFn(ctx, username)
 }
 
 type mockMessageRepo struct {
@@ -946,5 +978,164 @@ func TestMarkRead_EnqueuesBadgeSyncForReader(t *testing.T) {
 	}
 	if task.DedupKey == "" {
 		t.Error("expected non-empty dedup_key")
+	}
+}
+
+func TestListDialogs_MapsPreviewAndNullLastMessage(t *testing.T) {
+	t.Parallel()
+
+	body := msgBody
+	msgID := "m1"
+	sender := userB
+	created := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+
+	svc := chat.NewService(
+		&mockDialogRepo{
+			listByUserIDFn: func(_ context.Context, userID string) ([]store.DialogListItem, error) {
+				if userID != userA {
+					t.Errorf("userID: want %q, got %q", userA, userID)
+				}
+				return []store.DialogListItem{
+					{
+						DialogID:             "d1",
+						PeerUserID:           userB,
+						PeerUsername:         peerUsername,
+						LastMessageID:        &msgID,
+						LastMessageSenderID:  &sender,
+						LastMessageBody:      &body,
+						LastMessageCreatedAt: &created,
+						UnreadCount:          2,
+						UpdatedAt:            created,
+					},
+					{
+						DialogID:     "d2",
+						PeerUserID:   "user-c",
+						PeerUsername: "carol",
+						UnreadCount:  0,
+						UpdatedAt:    created.Add(-time.Hour),
+					},
+				}, nil
+			},
+		},
+		&mockMessageRepo{},
+		&mockReceiptRepo{},
+		noopNotifier(),
+		noopOutbox(),
+		noTTL,
+	)
+
+	items, err := svc.ListDialogs(context.Background(), userA)
+	if err != nil {
+		t.Fatalf("ListDialogs: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("len: want 2, got %d", len(items))
+	}
+	if items[0].LastMessage == nil || items[0].LastMessage.BodyPreview != body {
+		t.Errorf("first last_message unexpected: %+v", items[0].LastMessage)
+	}
+	if items[1].LastMessage != nil {
+		t.Errorf("second last_message: want nil, got %+v", items[1].LastMessage)
+	}
+	if items[0].Peer.Username != peerUsername || items[0].UnreadCount != 2 {
+		t.Errorf("first item: %+v", items[0])
+	}
+}
+
+func TestCreateDialogByUsername_SuccessAndIdempotent(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 8, 6, 12, 5, 0, 0, time.UTC)
+	getOrCreateCalls := 0
+
+	dialogs := &mockDialogRepo{
+		getOrCreateFn: func(_ context.Context, _, user1ID, user2ID string) (store.Dialog, error) {
+			getOrCreateCalls++
+			return store.Dialog{
+				ID:        sharedDialogID,
+				UserAID:   user1ID,
+				UserBID:   user2ID,
+				CreatedAt: createdAt,
+			}, nil
+		},
+		listByUserIDFn: func(_ context.Context, _ string) ([]store.DialogListItem, error) {
+			return []store.DialogListItem{{
+				DialogID:     sharedDialogID,
+				PeerUserID:   userB,
+				PeerUsername: peerUsername,
+				UnreadCount:  0,
+				UpdatedAt:    createdAt,
+			}}, nil
+		},
+	}
+
+	users := &mockUserRepo{
+		findByUsernameFn: func(_ context.Context, username string) (store.User, error) {
+			if username != peerUsername {
+				t.Errorf("username: want %q, got %q", peerUsername, username)
+			}
+			return store.User{ID: userB, Status: statusActive, Username: peerUsername}, nil
+		},
+	}
+
+	svc := chat.NewService(dialogs, &mockMessageRepo{}, &mockReceiptRepo{}, noopNotifier(), noopOutbox(), noTTL)
+	svc.SetUsersRepository(users)
+
+	first, err := svc.CreateDialogByUsername(context.Background(), userA, "  Bob ")
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	second, err := svc.CreateDialogByUsername(context.Background(), userA, peerUsername)
+	if err != nil {
+		t.Fatalf("second create: %v", err)
+	}
+
+	if first.DialogID != sharedDialogID || second.DialogID != first.DialogID {
+		t.Errorf("idempotent dialog ids: %q vs %q", first.DialogID, second.DialogID)
+	}
+	if getOrCreateCalls != 2 {
+		t.Errorf("GetOrCreate calls: want 2, got %d", getOrCreateCalls)
+	}
+}
+
+func TestCreateDialogByUsername_Errors(t *testing.T) {
+	t.Parallel()
+
+	users := &mockUserRepo{
+		findByUsernameFn: func(_ context.Context, username string) (store.User, error) {
+			switch username {
+			case "alice":
+				return store.User{ID: userA, Status: statusActive, Username: "alice"}, nil
+			case "ghost":
+				return store.User{}, store.ErrUserNotFound
+			case blockedUser:
+				return store.User{ID: userB, Status: blockedUser, Username: blockedUser}, nil
+			default:
+				return store.User{ID: userB, Status: statusActive, Username: username}, nil
+			}
+		},
+	}
+
+	svc := chat.NewService(
+		&mockDialogRepo{},
+		&mockMessageRepo{},
+		&mockReceiptRepo{},
+		noopNotifier(),
+		noopOutbox(),
+		noTTL,
+	)
+	svc.SetUsersRepository(users)
+
+	if _, err := svc.CreateDialogByUsername(context.Background(), userA, "   "); !errors.Is(err, chat.ErrInvalidDialogUsername) {
+		t.Errorf("empty: want ErrInvalidDialogUsername, got %v", err)
+	}
+	if _, err := svc.CreateDialogByUsername(context.Background(), userA, "alice"); !errors.Is(err, chat.ErrCannotDialogWithSelf) {
+		t.Errorf("self: want ErrCannotDialogWithSelf, got %v", err)
+	}
+	if _, err := svc.CreateDialogByUsername(context.Background(), userA, "ghost"); !errors.Is(err, chat.ErrDialogUserNotFound) {
+		t.Errorf("missing: want ErrDialogUserNotFound, got %v", err)
+	}
+	if _, err := svc.CreateDialogByUsername(context.Background(), userA, blockedUser); !errors.Is(err, chat.ErrDialogUserNotFound) {
+		t.Errorf("blocked: want ErrDialogUserNotFound, got %v", err)
 	}
 }
