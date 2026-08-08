@@ -49,13 +49,19 @@ import {
 } from "./api";
 import {
   PIN_LENGTH,
+  PIN_MAX_ATTEMPTS,
   clearPin,
+  decryptRefreshToken,
   encryptRefreshToken,
   isEncryptedRefresh,
   isPinSet,
   isValidPinFormat,
   setupPin,
+  verifyPin,
 } from "./pin";
+
+/** Счётчик неверных PIN на cold-start unlock (lockout → wipe). */
+let pinFailCount = 0;
 
 // --- DOM helpers ---
 
@@ -701,47 +707,132 @@ async function loadHome(): Promise<void> {
 
 // --- Экран: Unlock (cold start) ---
 
-/**
- * Путь разблокировки в среде без биометрии (браузер, web dev).
- * Refresh-токен читается напрямую без биометрической проверки.
- */
-async function startUnlockNoBiometric(): Promise<void> {
-  showScreen("unlock");
-  setStatus("Обновление сессии...");
-  log("no-biometric: читаем refresh token напрямую...");
-  try {
-    const rt = await getRefreshTokenRaw();
-    if (!rt) {
-      log("refresh token не найден, переход на Login");
-      showLoginScreen();
-      return;
-    }
-    const pair = await apiRefresh(rt);
-    await saveTokens({
-      accessToken: pair.access_token,
-      refreshToken: pair.refresh_token,
-      sessionId: pair.session_id,
-    });
-    log(`refresh OK, new session: ${pair.session_id}`);
-    await loadHome();
-  } catch (err) {
-    if (
-      err instanceof SessionCompromisedError ||
-      err instanceof SessionExpiredError ||
-      err instanceof SessionRevokedError
-    ) {
-      await clearAllTokens();
-      setStatus("Сессия истекла. Войдите заново.", true);
-    } else {
-      setStatus(String(err), true);
-      log(`ERR no-biometric unlock: ${String(err)}`);
-    }
-    showLoginScreen();
+function setUnlockUiMode(mode: "pin" | "biometric"): void {
+  const pinBlock = document.getElementById("unlock-pin-block");
+  const retryBtn = document.getElementById("btn-retry-unlock");
+  const subtitle = document.getElementById("unlock-subtitle");
+  if (pinBlock) pinBlock.style.display = mode === "pin" ? "" : "none";
+  if (retryBtn) retryBtn.style.display = mode === "biometric" ? "" : "none";
+  if (subtitle) {
+    subtitle.textContent =
+      mode === "pin"
+        ? "Введите PIN для разблокировки"
+        : "Подтвердите личность для разблокировки";
   }
 }
 
+/** Silent refresh + persist; optionally re-encrypt new refresh with PIN. */
+async function finishUnlockWithPlainRefresh(
+  plainRefresh: string,
+  pinForReencrypt?: string
+): Promise<void> {
+  setStatus("Обновление сессии...");
+  const pair = await apiRefresh(plainRefresh);
+  await saveTokens({
+    accessToken: pair.access_token,
+    refreshToken: pair.refresh_token,
+    sessionId: pair.session_id,
+  });
+  if (pinForReencrypt) {
+    const blob = await encryptRefreshToken(pinForReencrypt, pair.refresh_token);
+    await setRefreshToken(blob);
+  }
+  log(`refresh OK, new session: ${pair.session_id}`);
+  pinFailCount = 0;
+  await loadHome();
+}
+
+async function handleUnlockAuthError(err: unknown): Promise<boolean> {
+  if (err instanceof SessionCompromisedError) {
+    log("session_compromised! Family revoked. Выход.");
+    await clearAllTokens();
+    await clearPin();
+    setStatus("Сессия скомпрометирована. Войдите заново.", true);
+    showLoginScreen();
+    return true;
+  }
+  if (err instanceof SessionExpiredError || err instanceof SessionRevokedError) {
+    log("сессия истекла или отозвана. Выход.");
+    await clearAllTokens();
+    await clearPin();
+    setStatus("Сессия истекла. Войдите заново.", true);
+    showLoginScreen();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * PWA / no-biometric: экран ввода PIN (вместо silent auto-login).
+ */
+async function startUnlockWithPin(): Promise<void> {
+  showScreen("unlock");
+  setUnlockUiMode("pin");
+  setStatus("");
+  const pinInput = el<HTMLInputElement>("unlock-pin-input");
+  pinInput.value = "";
+  pinInput.focus();
+  log("unlock: ожидание PIN");
+}
+
+async function handleUnlockPin(): Promise<void> {
+  const pinInput = el<HTMLInputElement>("unlock-pin-input");
+  const pin = digitsOnly(pinInput.value);
+
+  if (!isValidPinFormat(pin)) {
+    setStatus(`PIN должен состоять из ${PIN_LENGTH} цифр`, true);
+    return;
+  }
+
+  const ok = await verifyPin(pin);
+  if (!ok) {
+    pinFailCount += 1;
+    log(`unlock PIN fail ${pinFailCount}/${PIN_MAX_ATTEMPTS}`);
+    pinInput.value = "";
+    pinInput.focus();
+    if (pinFailCount >= PIN_MAX_ATTEMPTS) {
+      pinFailCount = 0;
+      await clearAllTokens();
+      await clearPin();
+      setStatus("Слишком много попыток. Войдите заново.", true);
+      showLoginScreen();
+      return;
+    }
+    setStatus(
+      `Неверный PIN. Осталось попыток: ${PIN_MAX_ATTEMPTS - pinFailCount}`,
+      true
+    );
+    return;
+  }
+
+  setStatus("Обновление сессии...");
+  log("unlock PIN OK → refresh");
+  try {
+    const stored = await getRefreshTokenRaw();
+    if (!stored) {
+      await clearAllTokens();
+      await clearPin();
+      setStatus("Сессия не найдена. Войдите заново.", true);
+      showLoginScreen();
+      return;
+    }
+    const plain = await decryptRefreshToken(pin, stored);
+    await finishUnlockWithPlainRefresh(plain, pin);
+    pinInput.value = "";
+  } catch (err) {
+    if (await handleUnlockAuthError(err)) return;
+    setStatus(String(err), true);
+    log(`ERR unlock PIN: ${String(err)}`);
+  }
+}
+
+/**
+ * Capacitor native: Face ID как раньше.
+ * Если refresh уже ciphertext — после биометрии просим PIN для decrypt.
+ */
 async function startUnlock(): Promise<void> {
   showScreen("unlock");
+  setUnlockUiMode("biometric");
   setStatus("Ожидание биометрии...");
   log("cold start: запрашиваем биометрию...");
 
@@ -753,31 +844,20 @@ async function startUnlock(): Promise<void> {
       return;
     }
 
+    if (isEncryptedRefresh(rt)) {
+      log("биометрия OK, refresh зашифрован → PIN");
+      setUnlockUiMode("pin");
+      setStatus("Введите PIN");
+      const pinInput = el<HTMLInputElement>("unlock-pin-input");
+      pinInput.value = "";
+      pinInput.focus();
+      return;
+    }
+
     log("биометрия успешна, refresh access token...");
-    setStatus("Обновление токенов...");
-    const pair = await apiRefresh(rt);
-    await saveTokens({
-      accessToken: pair.access_token,
-      refreshToken: pair.refresh_token,
-      sessionId: pair.session_id,
-    });
-    log(`refresh OK, new session: ${pair.session_id}`);
-    await loadHome();
+    await finishUnlockWithPlainRefresh(rt);
   } catch (err) {
-    if (err instanceof SessionCompromisedError) {
-      log("session_compromised! Family revoked. Выход.");
-      await clearAllTokens();
-      setStatus("Сессия скомпрометирована. Войдите заново.", true);
-      showLoginScreen();
-      return;
-    }
-    if (err instanceof SessionExpiredError || err instanceof SessionRevokedError) {
-      log("сессия истекла или отозвана. Выход.");
-      await clearAllTokens();
-      setStatus("Сессия истекла. Войдите заново.", true);
-      showLoginScreen();
-      return;
-    }
+    if (await handleUnlockAuthError(err)) return;
 
     // Биометрическая ошибка
     const biometryErr = err as { biometryErrorType?: BiometryErrorType };
@@ -793,14 +873,16 @@ async function startUnlock(): Promise<void> {
       ) {
         log("биометрия недоступна, очищаем токены");
         await clearAllTokens();
+        await clearPin();
         setStatus("Биометрия недоступна. Войдите заново.", true);
         showLoginScreen();
         return;
       }
 
-      // Пользователь отменил — показываем кнопку retry
+      // Пользователь отменил — кнопка Face ID retry
       setStatus("Аутентификация отменена.", true);
       log("пользователь отменил биометрию — можно повторить");
+      setUnlockUiMode("biometric");
       showScreen("unlock");
       return;
     }
@@ -1175,6 +1257,11 @@ async function init(): Promise<void> {
   });
 
   // Unlock screen
+  bindPinInput("unlock-pin-input");
+  el("btn-unlock-pin").addEventListener("click", () => void handleUnlockPin());
+  el("unlock-pin-input").addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") void handleUnlockPin();
+  });
   el("btn-retry-unlock").addEventListener("click", () => void startUnlock());
   el("btn-logout-from-unlock").addEventListener("click", () => void handleLogout());
 
@@ -1218,13 +1305,18 @@ async function init(): Promise<void> {
 
   // Cold start routing
   const hasRefresh = await hasRefreshToken();
-  log(`has refresh token: ${hasRefresh}`);
+  const pinSet = await isPinSet();
+  log(`has refresh token: ${hasRefresh}; pin set: ${pinSet}`);
 
   if (hasRefresh) {
-    if (biometricOk) {
+    if (!pinSet) {
+      // Миграция сессий до Sprint 8: есть refresh, PIN ещё не задан
+      log("миграция: refresh без PIN → Setup PIN");
+      showSetupPinScreen();
+    } else if (biometricOk) {
       await startUnlock();
     } else {
-      await startUnlockNoBiometric();
+      await startUnlockWithPin();
     }
   } else {
     showLoginScreen();

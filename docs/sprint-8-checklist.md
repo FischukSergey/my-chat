@@ -50,11 +50,13 @@
 
 ## 4) Клиент — Unlock PIN
 
-- [ ] Заменить auto-`startUnlockNoBiometric` на экран ввода PIN при `hasRefresh && pin_set`.
-- [ ] Успех → silent refresh → Home (как сейчас после gate).
-- [ ] Нет PIN при наличии refresh → Setup PIN (миграция существующих сессий).
-- [ ] «Выйти из аккаунта» с unlock-экрана работает.
-- [ ] Lockout по §1.
+- [x] Заменить auto-`startUnlockNoBiometric` на экран ввода PIN при `hasRefresh && pin_set`.
+- [x] Успех → silent refresh → Home (как сейчас после gate).
+- [x] Нет PIN при наличии refresh → Setup PIN (миграция существующих сессий).
+- [x] «Выйти из аккаунта» с unlock-экрана работает.
+- [x] Lockout по §1.
+
+Примечание: `startUnlockWithPin` вместо silent refresh; decrypt `enc:v1:` → `apiRefresh` → re-encrypt; 5 fails → clear tokens+PIN → Login; native Face ID сохранён (`startUnlock`), при ciphertext после биометрии — PIN.
 
 ---
 

@@ -482,14 +482,32 @@
       </div>
     </div>
 
-    <!-- ===== Unlock screen (cold start) ===== -->
+    <!-- ===== Unlock screen (cold start: PIN / Face ID) ===== -->
     <div id="unlock" class="screen">
       <div class="card" style="text-align:center">
         <div class="lock-icon">🔒</div>
         <h1>my-chat</h1>
-        <p class="subtitle">Подтвердите личность для разблокировки</p>
-        <button id="btn-retry-unlock" class="btn-primary">Разблокировать</button>
-        <button id="btn-logout-from-unlock" class="btn-secondary">Выйти из аккаунта</button>
+        <p class="subtitle" id="unlock-subtitle">Введите PIN для разблокировки</p>
+
+        <div id="unlock-pin-block" style="text-align:left">
+          <label for="unlock-pin-input">PIN</label>
+          <input
+            id="unlock-pin-input"
+            class="pin-input"
+            type="password"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            maxlength="4"
+            autocomplete="one-time-code"
+            placeholder="••••"
+          />
+          <button id="btn-unlock-pin" class="btn-primary" type="button">Разблокировать</button>
+        </div>
+
+        <button id="btn-retry-unlock" class="btn-primary" type="button" style="display:none">
+          Разблокировать Face ID
+        </button>
+        <button id="btn-logout-from-unlock" class="btn-secondary" type="button">Выйти из аккаунта</button>
       </div>
     </div>
 
