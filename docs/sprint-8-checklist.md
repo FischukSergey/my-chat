@@ -104,12 +104,14 @@
 
 ## 9) Тесты и качество
 
-- [ ] `task fmt`, `task lint`, `task test` (+ `task test:integration` если enqueue/outbox затронут).
+- [x] `task fmt`, `task lint`, `task test` (+ `task test:integration` если enqueue/outbox затронут).
 - [ ] Manual PWA: register → setup PIN → Home.
 - [ ] Manual: kill PWA → PIN → Home.
 - [ ] Manual: background > grace → PIN.
 - [ ] Manual: wrong PIN ×5 → Login; logout → login → setup PIN снова.
 - [ ] Manual: push title = username; chat background ok.
+
+Примечание: авто 2026-08-08 — `task fmt` / `lint` (0 issues) / `test` / `test:integration` green; `cd mobile && npm test` — 14 passed. Manual PWA/smoke на устройстве (`beepru.ru`) — ждёт подтверждения пользователя (нужны для DoD §11).
 
 ---
 
