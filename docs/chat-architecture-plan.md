@@ -3,7 +3,7 @@
 Документ — living architecture: цели, принятые решения и фактическое устройство системы.  
 Детальные задачи и DoD — в `docs/sprint-N-plan.md` / `docs/sprint-N-checklist.md`. Контракты API — в `docs/api-sprint-N.md`.
 
-**Статус (2026-08):** спринты **1–7 DONE** (Sprint 6 функционально закрыт). Далее: **8** (PWA unlock / PIN + push title/UX чата) и **9** (at-rest encryption сообщений; после 7, ортогонален 8). Prod: **https://beepru.ru**.
+**Статус (2026-08):** спринты **1–8 DONE**. Далее: **9** (at-rest encryption сообщений). Prod: **https://beepru.ru**.
 
 ---
 
@@ -302,8 +302,8 @@ PWA на Home Screen, Web Push (VAPID), badge + `badge_sync`, device binding, lo
 
 Детали: `docs/sprint-7-plan.md`, `docs/sprint-7-checklist.md`, `docs/api-sprint-7.md`.
 
-### Sprint 8 — PLANNED (PWA unlock / PIN + UX)
-Локальный PIN после register/login; cold start + resume (grace); push title = username отправителя (не preview текста); фон чата бирюза + watermark. Без Redis/PIN API. WebAuthn — later (8.1+). Capacitor Face ID не ломать.
+### Sprint 8 — DONE (PWA unlock / PIN + UX)
+Локальный PIN (4 цифры) после register/login; cold start + resume (grace 60s); refresh encrypted (`enc:v1:` PBKDF2+AES-GCM); push title = username отправителя; фон чата бирюза + watermark. Без Redis/PIN API. WebAuthn — later (8.1+). Capacitor Face ID сохранён. Known limitations: `docs/known-limitations-sprint-8.md`.
 
 Детали: `docs/sprint-8-plan.md`, `docs/sprint-8-checklist.md`, `docs/api-sprint-8.md`.
 
@@ -332,7 +332,7 @@ AES-256-GCM envelope (Вариант A): ciphertext в БД, plaintext толь�
    → закрыто в Sprint 7 (список + create by username).
 
 6. **Face ID недоступен в Safari/PWA через Capacitor**  
-   → Sprint 8: локальный PIN unlock; WebAuthn platform passkey — follow-up после PIN.
+   → закрыто в Sprint 8 (локальный PIN + encrypt refresh); WebAuthn platform passkey — follow-up 8.1+.
 
 7. **Устаревший push endpoint**  
    → HTTP 404/410 → деактивировать подписку в БД.
@@ -344,9 +344,8 @@ AES-256-GCM envelope (Вариант A): ciphertext в БД, plaintext толь�
 
 ## 15) Что делать сейчас (фокус)
 
-1. **Sprint 8** — PWA unlock / PIN + push title/UX чата (ортогонален 9).
-2. **Sprint 9** — at-rest encryption сообщений (после 7; не смешивать с 7/8).
-3. Хвосты Sprint 6/7 known-limitations — по приоритету (unregister devices, CountUnread vs deleted_at).
-4. Не переоткрывать Sprint 1–5; infra — поверх `deploy/prod/`.
+1. **Sprint 9** — at-rest encryption сообщений (после 7/8; не смешивать DoD).
+2. Хвосты Sprint 6/7/8 known-limitations — по приоритету (unregister devices, CountUnread vs deleted_at, WebAuthn 8.1).
+3. Не переоткрывать Sprint 1–5; infra — поверх `deploy/prod/`.
 
 Операционные скиллы: `.cursor/skills/local-dev`, `prod-deploy`, `sprint-work`.

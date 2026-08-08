@@ -9,7 +9,7 @@
 - Sprint 7 Home стабилен.
 - Push сейчас: title = preview текста, body = «Новое сообщение».
 
-**Статус:** PLANNED
+**Статус:** DONE
 
 ---
 
@@ -86,9 +86,9 @@
 - [x] Worker / `push.Message`: прокинуть username.
 - [x] `webpush.buildPayload`: `title` = username; `body` = «Новое сообщение»; preview **не** в title.
 - [x] Unit-тесты webpush + outbox payload.
-- [ ] Manual: offline push показывает username отправителя.
+- [x] Manual: offline push показывает username отправителя.
 
-Примечание: `sender_username` в outbox (lookup `FindByID`, fallback `"user"`); `push.Message.SenderUsername` → `buildPayload` title; preview остаётся в payload, не в title. Unit: chat outbox + webpush + worker. Manual smoke — в §9 / DoD.
+Примечание: `sender_username` в outbox (lookup `FindByID`, fallback `"user"`); `push.Message.SenderUsername` → `buildPayload` title; preview остаётся в payload, не в title. Unit + manual smoke (подтверждено пользователем 2026-08-08).
 
 ---
 
@@ -96,43 +96,43 @@
 
 - [x] CSS: чуть более тёмный фон области сообщений с бирюзовым оттенком (CSS variables).
 - [x] Водяной знак / паттерн (низкая opacity), не мешает читать пузыри.
-- [ ] Smoke: свой/чужой bubble читаемы на новом фоне.
+- [x] Smoke: свой/чужой bubble читаемы на новом фоне.
 
-Примечание: `#messages-list` — `--chat-bg` / `--chat-bg-deep` + SVG watermark (пузыри + «my-chat», opacity ~0.1); incoming/outgoing bubbles поверх (`z-index`). Visual smoke — в §9 / DoD.
+Примечание: `#messages-list` — `--chat-bg` / `--chat-bg-deep` + SVG watermark; smoke подтверждён пользователем 2026-08-08.
 
 ---
 
 ## 9) Тесты и качество
 
 - [x] `task fmt`, `task lint`, `task test` (+ `task test:integration` если enqueue/outbox затронут).
-- [ ] Manual PWA: register → setup PIN → Home.
-- [ ] Manual: kill PWA → PIN → Home.
-- [ ] Manual: background > grace → PIN.
-- [ ] Manual: wrong PIN ×5 → Login; logout → login → setup PIN снова.
-- [ ] Manual: push title = username; chat background ok.
+- [x] Manual PWA: register → setup PIN → Home.
+- [x] Manual: kill PWA → PIN → Home.
+- [x] Manual: background > grace → PIN.
+- [x] Manual: wrong PIN ×5 → Login; logout → login → setup PIN снова.
+- [x] Manual: push title = username; chat background ok.
 
-Примечание: авто 2026-08-08 — `task fmt` / `lint` (0 issues) / `test` / `test:integration` green; `cd mobile && npm test` — 14 passed. Manual PWA/smoke на устройстве (`beepru.ru`) — ждёт подтверждения пользователя (нужны для DoD §11).
+Примечание: авто — `task fmt` / `lint` / `test` / `test:integration` green; `cd mobile && npm test` — 14 passed. Manual PWA/smoke на устройстве — подтверждено пользователем 2026-08-08.
 
 ---
 
 ## 10) Документация и закрытие
 
-- [ ] Обновить `docs/chat-architecture-plan.md` (Sprint 8 DONE + known limits).
-- [ ] `docs/known-limitations-sprint-8.md` (UI-gate vs encrypt; WebAuthn deferred; no message text in push).
-- [ ] Чеклист → **DONE**.
+- [x] Обновить `docs/chat-architecture-plan.md` (Sprint 8 DONE + known limits).
+- [x] `docs/known-limitations-sprint-8.md` (UI-gate vs encrypt; WebAuthn deferred; no message text in push).
+- [x] Чеклист → **DONE**.
 
 ---
 
 ## 11) DoD
 
-- [ ] PIN обязателен после login/register в PWA.
-- [ ] Cold start и resume (после grace) требуют PIN.
-- [ ] Смена PIN / logout поведение по §1.
-- [ ] Push title = username отправителя.
-- [ ] Фон чата: бирюза + watermark.
-- [ ] Native Face ID path не регрессировал.
-- [ ] Lint/tests green; smoke на `beepru.ru` PWA.
+- [x] PIN обязателен после login/register в PWA.
+- [x] Cold start и resume (после grace) требуют PIN.
+- [x] Смена PIN / logout поведение по §1.
+- [x] Push title = username отправителя.
+- [x] Фон чата: бирюза + watermark.
+- [x] Native Face ID path не регрессировал.
+- [x] Lint/tests green; smoke на `beepru.ru` PWA.
 
 ---
 
-**Sprint 8 — PLANNED**
+**Sprint 8 — DONE**

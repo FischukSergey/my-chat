@@ -154,18 +154,18 @@
 
 ## 6) DoD
 
-- [ ] После register/login пользователь обязан задать PIN (если ещё не задан).
-- [ ] Cold start с сессией требует PIN; без PIN Home не показывается.
-- [ ] Resume после background дольше grace → снова PIN.
-- [ ] Смена PIN работает; logout очищает сессию (и PIN — по принятому решению).
-- [ ] Push `message_new`: title = username отправителя; body = «Новое сообщение».
-- [ ] Фон чата: бирюзовый tint + watermark, читаемость ок.
-- [ ] Capacitor Face ID path не сломан.
-- [ ] Lint/tests green для затронутого; smoke на `beepru.ru` PWA.
+- [x] После register/login пользователь обязан задать PIN (если ещё не задан).
+- [x] Cold start с сессией требует PIN; без PIN Home не показывается.
+- [x] Resume после background дольше grace → снова PIN.
+- [x] Смена PIN работает; logout очищает сессию (и PIN — по принятому решению).
+- [x] Push `message_new`: title = username отправителя; body = «Новое сообщение».
+- [x] Фон чата: бирюзовый tint + watermark, читаемость ок.
+- [x] Capacitor Face ID path не сломан.
+- [x] Lint/tests green для затронутого; smoke на `beepru.ru` PWA.
 
 ## 7) Артефакты
 
 - `docs/sprint-8-plan.md` (этот файл)
 - `docs/sprint-8-checklist.md`
 - `docs/api-sprint-8.md` (PIN keys + push payload contract)
-- По завершении: `docs/known-limitations-sprint-8.md`
+- `docs/known-limitations-sprint-8.md`

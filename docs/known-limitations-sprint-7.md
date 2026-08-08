@@ -52,6 +52,6 @@
 ## 6. Вне scope (напоминание)
 
 - Групповые чаты, аватарки, названия чатов.
-- PWA local PIN unlock → Sprint 8 (WebAuthn / Face ID sheet в PWA — later).
+- PWA local PIN unlock → закрыто в Sprint 8 (`docs/known-limitations-sprint-8.md`; WebAuthn — 8.1+).
 - At-rest / E2EE шифрование сообщений → Sprint 9.
 - Typing / presence / поиск по тексту сообщений.
