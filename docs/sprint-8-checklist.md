@@ -82,11 +82,13 @@
 
 ## 7) Push — title = sender username (backend)
 
-- [ ] `enqueueOutbox`: добавить `sender_username` в payload (lookup по `sender_id`).
-- [ ] Worker / `push.Message`: прокинуть username.
-- [ ] `webpush.buildPayload`: `title` = username; `body` = «Новое сообщение»; preview **не** в title.
-- [ ] Unit-тесты webpush + outbox payload.
+- [x] `enqueueOutbox`: добавить `sender_username` в payload (lookup по `sender_id`).
+- [x] Worker / `push.Message`: прокинуть username.
+- [x] `webpush.buildPayload`: `title` = username; `body` = «Новое сообщение»; preview **не** в title.
+- [x] Unit-тесты webpush + outbox payload.
 - [ ] Manual: offline push показывает username отправителя.
+
+Примечание: `sender_username` в outbox (lookup `FindByID`, fallback `"user"`); `push.Message.SenderUsername` → `buildPayload` title; preview остаётся в payload, не в title. Unit: chat outbox + webpush + worker. Manual smoke — в §9 / DoD.
 
 ---
 

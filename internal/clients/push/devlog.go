@@ -28,6 +28,7 @@ func (p *DevLogProvider) Send(_ context.Context, msg Message) error {
 		slog.String("message_id", msg.MessageID),
 		slog.String("dialog_id", msg.DialogID),
 		slog.String("sender_id", msg.SenderID),
+		slog.String("sender_username", msg.SenderUsername),
 		slog.String("preview", msg.Preview),
 		slog.Int("unread_count", msg.UnreadCount),
 		slog.Int("badge", msg.Badge),

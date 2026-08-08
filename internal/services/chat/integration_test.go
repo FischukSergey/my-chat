@@ -212,6 +212,10 @@ func TestIntegration_OfflineRecipient_OutboxTaskCreated(t *testing.T) {
 	if payload["message_id"] != msgID {
 		t.Errorf("expected message_id=%q, got %v", msgID, payload["message_id"])
 	}
+	// Без username в users → fallback "user" (Sprint 8)
+	if payload["sender_username"] != "user" {
+		t.Errorf("expected sender_username=user fallback, got %v", payload["sender_username"])
+	}
 }
 
 // TestIntegration_ReadSynchronizesUnreadBadge verifies that after MarkRead the unread

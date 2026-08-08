@@ -3,6 +3,7 @@ package chat_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -26,10 +27,11 @@ const (
 	msgBody   = "hello"
 	msgBodyNL = "hello world"
 
-	statusActive   = "active"
-	peerUsername   = "bob"
-	sharedDialogID = "d-shared"
-	blockedUser    = "blocked"
+	statusActive        = "active"
+	peerUsername        = "bob"
+	senderUsernameAlice = "alice"
+	sharedDialogID      = "d-shared"
+	blockedUser         = "blocked"
 )
 
 // --- mock types ---
@@ -60,6 +62,7 @@ func (m *mockDialogRepo) ListByUserID(ctx context.Context, userID string) ([]sto
 
 type mockUserRepo struct {
 	findByUsernameFn func(ctx context.Context, username string) (store.User, error)
+	findByIDFn       func(ctx context.Context, userID string) (store.User, error)
 }
 
 func (m *mockUserRepo) FindByUsername(ctx context.Context, username string) (store.User, error) {
@@ -67,6 +70,13 @@ func (m *mockUserRepo) FindByUsername(ctx context.Context, username string) (sto
 		return store.User{}, errors.New("FindByUsername not stubbed")
 	}
 	return m.findByUsernameFn(ctx, username)
+}
+
+func (m *mockUserRepo) FindByID(ctx context.Context, userID string) (store.User, error) {
+	if m.findByIDFn == nil {
+		return store.User{}, errors.New("FindByID not stubbed")
+	}
+	return m.findByIDFn(ctx, userID)
 }
 
 type mockMessageRepo struct {
@@ -466,6 +476,14 @@ func TestSendMessage_ReceiverOffline_EnqueuesOutbox(t *testing.T) {
 		},
 		noTTL,
 	)
+	svc.SetUsersRepository(&mockUserRepo{
+		findByIDFn: func(_ context.Context, userID string) (store.User, error) {
+			if userID != userA {
+				return store.User{}, errors.New("not found")
+			}
+			return store.User{ID: userA, Username: senderUsernameAlice}, nil
+		},
+	})
 
 	_, err := svc.SendMessage(context.Background(), store.Message{
 		ID:       msgID1,
@@ -492,6 +510,72 @@ func TestSendMessage_ReceiverOffline_EnqueuesOutbox(t *testing.T) {
 	}
 	if len(enqueuedTask.Payload) == 0 {
 		t.Error("expected non-empty payload")
+	}
+
+	var payload map[string]any
+	if err = json.Unmarshal(enqueuedTask.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload["sender_username"] != senderUsernameAlice {
+		t.Errorf("expected sender_username=%s, got %v", senderUsernameAlice, payload["sender_username"])
+	}
+	if payload["preview"] != "hello outbox" {
+		t.Errorf("expected preview kept for logs, got %v", payload["preview"])
+	}
+}
+
+func TestSendMessage_ReceiverOffline_SenderUsernameFallback(t *testing.T) {
+	t.Parallel()
+
+	var enqueuedTask store.NotificationOutbox
+
+	svc := chat.NewService(
+		&mockDialogRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
+				return store.Dialog{ID: "d1", UserAID: userA, UserBID: userB}, nil
+			},
+		},
+		&mockMessageRepo{
+			createFn: func(_ context.Context, msg store.Message) (store.Message, error) {
+				msg.CreatedAt = time.Now()
+				return msg, nil
+			},
+		},
+		&mockReceiptRepo{
+			ensureFn: func(_ context.Context, _, _ string) error { return nil },
+			countUnreadFn: func(_ context.Context, _ string) (int, error) {
+				return 1, nil
+			},
+		},
+		&mockNotifier{
+			sendFn: func(_ context.Context, _ string, _ hub.Event) bool { return false },
+		},
+		&mockOutbox{
+			enqueueFn: func(_ context.Context, task store.NotificationOutbox) error {
+				enqueuedTask = task
+				return nil
+			},
+		},
+		noTTL,
+	)
+	// users repo не задан → fallback "user"
+
+	_, err := svc.SendMessage(context.Background(), store.Message{
+		ID:       msgID1,
+		DialogID: "d1",
+		SenderID: userA,
+		Body:     "secret text",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload map[string]any
+	if err = json.Unmarshal(enqueuedTask.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload["sender_username"] != "user" {
+		t.Errorf("expected sender_username fallback=user, got %v", payload["sender_username"])
 	}
 }
 
@@ -1104,8 +1188,8 @@ func TestCreateDialogByUsername_Errors(t *testing.T) {
 	users := &mockUserRepo{
 		findByUsernameFn: func(_ context.Context, username string) (store.User, error) {
 			switch username {
-			case "alice":
-				return store.User{ID: userA, Status: statusActive, Username: "alice"}, nil
+			case senderUsernameAlice:
+				return store.User{ID: userA, Status: statusActive, Username: senderUsernameAlice}, nil
 			case "ghost":
 				return store.User{}, store.ErrUserNotFound
 			case blockedUser:
@@ -1129,7 +1213,8 @@ func TestCreateDialogByUsername_Errors(t *testing.T) {
 	if _, err := svc.CreateDialogByUsername(context.Background(), userA, "   "); !errors.Is(err, chat.ErrInvalidDialogUsername) {
 		t.Errorf("empty: want ErrInvalidDialogUsername, got %v", err)
 	}
-	if _, err := svc.CreateDialogByUsername(context.Background(), userA, "alice"); !errors.Is(err, chat.ErrCannotDialogWithSelf) {
+	_, err := svc.CreateDialogByUsername(context.Background(), userA, senderUsernameAlice)
+	if !errors.Is(err, chat.ErrCannotDialogWithSelf) {
 		t.Errorf("self: want ErrCannotDialogWithSelf, got %v", err)
 	}
 	if _, err := svc.CreateDialogByUsername(context.Background(), userA, "ghost"); !errors.Is(err, chat.ErrDialogUserNotFound) {

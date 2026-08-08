@@ -74,6 +74,14 @@ type badgeSyncPayload struct {
 	Badge int    `json:"badge"`
 }
 
+// pushAlertTitle — title уведомления: username отправителя (не preview текста).
+func pushAlertTitle(msg Message) string {
+	if msg.SenderUsername != "" {
+		return msg.SenderUsername
+	}
+	return "user"
+}
+
 // buildPayload формирует JSON-payload в зависимости от типа события.
 func buildPayload(msg Message) ([]byte, error) {
 	if msg.EventType == "badge_sync" {
@@ -83,7 +91,7 @@ func buildPayload(msg Message) ([]byte, error) {
 		})
 	}
 	return json.Marshal(alertPayload{
-		Title:     msg.Preview,
+		Title:     pushAlertTitle(msg),
 		Body:      "Новое сообщение",
 		Badge:     msg.Badge,
 		DialogID:  msg.DialogID,

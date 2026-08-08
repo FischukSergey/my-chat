@@ -46,6 +46,7 @@ type DialogItem struct {
 
 type userRepository interface {
 	FindByUsername(ctx context.Context, username string) (store.User, error)
+	FindByID(ctx context.Context, userID string) (store.User, error)
 }
 
 // ListDialogs возвращает диалоги пользователя (updated_at DESC).
