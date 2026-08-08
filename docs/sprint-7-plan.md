@@ -69,7 +69,7 @@
 ## 4) Что не входит (out of scope)
 
 - Групповые чаты, названия чатов, аватарки.
-- Face ID / WebAuthn (→ Sprint 8).
+- PWA PIN unlock (→ Sprint 8); WebAuthn later.
 - At-rest / E2EE шифрование сообщений (→ Sprint 9; E2EE вне scope).
 - Typing indicators, presence, поиск по тексту сообщений.
 - Изменение формата WS-событий сообщений.

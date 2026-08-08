@@ -1,136 +1,163 @@
-# API Sprint 8 — WebAuthn / PWA unlock
+# API Sprint 8 — PWA PIN unlock + push title
 
-Базовый path: `/api/v1`. Auth: Bearer access JWT для register/list/delete.  
-`login/begin`+`finish` — для unlock assertion; доступ по access token **или** по user id + device hint (уточнить при реализации: MVP — требуется валидный refresh в secure storage + access или отдельный unlock session cookie — зафиксировать в коде и здесь).
+Sprint 8 **не добавляет** REST endpoints для PIN и **не включает** WebAuthn.
 
-Рекомендуемый MVP: все `/webauthn/*` за Bearer access (пользователь уже залогинен; WebAuthn только разблокирует локальный UI). Если access истёк — сначала silent refresh, затем WebAuthn unlock.
+PIN проверяется только на устройстве. Auth HTTP как в `docs/api-sprint-6.md`.
 
-RP: `rp_id`, `origins` из конфига (prod: `beepru.ru` / `https://beepru.ru`).
+Единственное server-изменение спринта: контракт **outbox / Web Push payload** для `message_new` (title = username отправителя).
 
-Связанные: `docs/sprint-8-plan.md`, `docs/api-sprint-6.md` (auth).
-
----
-
-## 1) POST /webauthn/register/begin
-
-Начать регистрацию platform credential.
-
-**Auth:** required.
-
-**Request:** `{}` или `{ "name": "iPhone" }` (label).
-
-**Response 200:** PublicKeyCredentialCreationOptions (JSON, как отдаёт библиотека; client передаёт в `navigator.credentials.create`).
-
-Сервер сохраняет challenge в TTL store.
-
-**Errors:** `401`, `429`, `400` если platform уже excess limit (если введём лимит).
+Связанные: `docs/sprint-8-plan.md`, `docs/sprint-8-checklist.md`.
 
 ---
 
-## 2) POST /webauthn/register/finish
+## 1) Server API (HTTP)
 
-Завершить регистрацию.
+Новых REST routes **нет**.
 
-**Auth:** required.
+| Было в черновике Sprint 8 (WebAuthn) | Статус |
+|--------------------------------------|--------|
+| `POST /webauthn/register|login/*` | **Отложено** (Sprint 8.1+) |
+| `GET/DELETE /webauthn/credentials` | **Отложено** |
+| Redis challenge store | **Не нужен** |
 
-**Request:** credential attestation response (JSON от `credentials.create`).
-
-**Response 200:**
-
-```json
-{
-  "credential_id": "base64url…",
-  "name": "iPhone",
-  "created_at": "2026-08-06T12:00:00Z"
-}
-```
-
-**Errors:** `400` invalid attestation / bad challenge, `401`, `409` duplicate credential id.
+Клиент по-прежнему использует register / login / refresh / logout без изменений path/body.
 
 ---
 
-## 3) POST /webauthn/login/begin
+## 2) Local storage keys (PWA)
 
-Начать assertion (unlock).
+Префикс согласован с существующими `my_chat_*` в `mobile/src/auth.ts`.
 
-**Auth:** required (MVP).
+| Key | Contents | Notes |
+|-----|----------|--------|
+| `my_chat_pin_salt` | base64 salt | per-device |
+| `my_chat_pin_hash` | base64 hash(PIN, salt) | never store plaintext PIN |
+| `my_chat_pin_set` | `"1"` / отсутствует | быстрый флаг; можно выводить из наличия salt+hash |
+| `my_chat_refresh_token` | plaintext **или** ciphertext | ciphertext если включён Should encrypt |
+| `my_chat_access_token` | как сейчас | короткий TTL; encrypt optional |
+| `my_chat_session_id` | как сейчас | |
+| `my_chat_user_id` | как сейчас | |
 
-**Request:** `{}`
+Зафиксированная схема (Must): verifier = `SHA-256(salt || PIN)` (см. `mobile/src/pin.ts`).
 
-**Response 200:** PublicKeyCredentialRequestOptions (`allowCredentials` из credentials пользователя).
+Should encrypt refresh:
 
-**Errors:** `401`, `404` если нет credentials (`no_credentials`), `429`.
-
----
-
-## 4) POST /webauthn/login/finish
-
-Проверить assertion.
-
-**Auth:** required (MVP).
-
-**Request:** credential assertion response.
-
-**Response 200:**
-
-```json
-{
-  "ok": true,
-  "unlocked_at": "2026-08-06T12:01:00Z"
-}
-```
-
-Клиент при `ok` открывает vault / пропускает PIN. JWT не обязательно ротировать (session уже есть).
-
-**Errors:** `400` verification failed, `401`, `404`.
+- `key = PBKDF2(PIN, salt, iterations ≥ 100_000, SHA-256) → AES-256-GCM`
+- `my_chat_refresh_token = "enc:v1:" + base64(nonce || AES-GCM(key, refresh))`
+- без верного PIN refresh не расшифровать → только Login + новый setup
+- legacy plaintext refresh (без префикса) принимается при decrypt до миграции
 
 ---
 
-## 5) GET /webauthn/credentials
+## 3) Клиентские экраны / события
 
-**Auth:** required.
+### 3.1 Setup PIN
 
-**Response 200:**
+**Когда:** сразу после успешного register или login, если PIN не задан на устройстве.
 
-```json
-{
-  "credentials": [
-    {
-      "credential_id": "…",
-      "name": "iPhone",
-      "created_at": "…",
-      "last_used_at": "…"
-    }
-  ]
-}
-```
+**UI:** ввод PIN → подтверждение → persist salt/hash → далее Home (и регистрация push и т.д. как сейчас).
 
-Без public key в ответе.
+**Ошибки UI:** mismatch confirm, неверная длина, нецифровые символы.
+
+### 3.2 Unlock PIN
+
+**Когда:**
+
+1. Cold start: есть refresh (или encrypted blob) **и** PIN задан.
+2. Resume: документ был `hidden` дольше grace period (`PIN_LOCK_GRACE_MS`, default **60000**).
+
+**Успех:** verify PIN → (decrypt refresh если нужно) → `apiRefresh` → Home.
+
+**Неверный PIN:** счётчик попыток; после **5** → `clearAllTokens` + clear PIN keys → Login.
+
+**Выйти:** clear tokens (+ clear PIN keys — см. plan §3.C).
+
+### 3.3 Change PIN
+
+**Когда:** Settings.
+
+**Flow:** old PIN → verify → new PIN ×2 → re-hash; если refresh encrypted — перешифровать новым ключом.
+
+### 3.4 Миграция уже залогиненных PWA
+
+Если есть refresh, но PIN не задан (пользователи до Sprint 8):
+
+→ показать Setup PIN **до** Home (не silent unlock).
 
 ---
 
-## 6) DELETE /webauthn/credentials/{credential_id}
-
-**Auth:** required. Только свои credentials.
-
-**Response:** `204` или `{ "ok": true }`.
-
-**Errors:** `401`, `404`.
-
----
-
-## 7) Клиентский flow (MVP)
+## 4) Flow (MVP)
 
 ```
-password login → PIN setup
-  → optional: register/begin → create() → register/finish
+register / login (password)
+  → if !pin_set: Setup PIN
+  → Home
 
 cold start:
-  refresh tokens if needed
-  → if webauthn_enabled:
-       login/begin → get() → login/finish → unlock UI
-     else:
-       PIN unlock
+  → if !has_session: Login
+  → if has_session && !pin_set: Setup PIN
+  → if has_session && pin_set: Unlock PIN → refresh → Home
+
+background:
+  → hidden longer than grace → next focus: Unlock PIN
+
+logout:
+  → clear tokens + clear PIN keys → Login
 ```
 
-Capacitor native: прежний LocalAuthentication path; WebAuthn — для `!Capacitor.isNativePlatform()`.
+Capacitor native: cold start с биометрией (`startUnlock`) без изменений Must; PIN-экраны в native — optional.
+
+---
+
+## 5) Константы (рекомендуемые defaults)
+
+| Name | Value |
+|------|--------|
+| PIN length | 4 digits (`PIN_LENGTH` в `mobile/src/pin.ts`) |
+| Grace period | 60_000 ms (`PIN_LOCK_GRACE_MS`) |
+| Max attempts | 5 (`PIN_MAX_ATTEMPTS`) |
+| PBKDF2 iterations (encrypt) | 100_000 (`PBKDF2_ITERATIONS`) |
+
+Изменения defaults — только через чеклист §1, не молча в коде.
+
+---
+
+## 6) Push / outbox contract (`message_new`)
+
+### 6.1 Outbox payload (в БД `notification_outbox`)
+
+Дополнительно к существующим полям (`event_type`, `user_id`, `message_id`, `dialog_id`, `sender_id`, `preview`, `unread_count`, …):
+
+```json
+{
+  "event_type": "message_new",
+  "sender_id": "…",
+  "sender_username": "alice",
+  "preview": "текст сообщения (для логов/будущего; не в UI push title)",
+  "dialog_id": "…",
+  "message_id": "…",
+  "unread_count": 1
+}
+```
+
+`sender_username` — lookup при `enqueueOutbox`. Если username не найден: fallback `"user"` (не подставлять сырой UUID в title без необходимости).
+
+`preview` можно продолжать писать (совместимость / отладка), но **не** использовать как notification title.
+
+### 6.2 Web Push JSON (то, что видит SW)
+
+| Поле | Значение |
+|------|----------|
+| `title` | `sender_username` |
+| `body` | `"Новое сообщение"` (константа, как сейчас) |
+| `badge` | актуальный unread |
+| `dialog_id` | id диалога |
+| `message_id` | id сообщения |
+
+`badge_sync` без изменений (`type` + `badge`).
+
+Системная строка ОС вроде «from MyChat» — из `manifest.json` `name`/`short_name`, не из этого payload.
+
+### 6.3 UI чата (не API)
+
+Фон ленты сообщений: бирюзовый tint + watermark — только клиентский CSS; контракта API нет.

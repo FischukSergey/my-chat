@@ -2,11 +2,12 @@
 
 Источник: `docs/sprint-8-plan.md`.
 
-**Цель спринта:** биометрический unlock PWA через WebAuthn / platform passkey (Face ID на iOS Home Screen).
+**Цель спринта:** локальный PIN-unlock в PWA; push title = username отправителя; фон чата (бирюза + watermark). WebAuthn — out of scope.
 
 **Предусловия:**
-- PWA на prod с PIN unlock (`startUnlockNoBiometric`).
-- Выбран Вариант A из plan §3.C (passkey = gate unlock, не полный passwordless).
+- PWA на prod; cold start сегодня = `startUnlockNoBiometric` (auto refresh без PIN).
+- Sprint 7 Home стабилен.
+- Push сейчас: title = preview текста, body = «Новое сообщение».
 
 **Статус:** PLANNED
 
@@ -14,88 +15,109 @@
 
 ## 1) Подготовка и решения
 
-- [ ] Зафиксировать RP ID / origins для local и prod.
-- [ ] Выбрать библиотеку (`go-webauthn/webauthn` или актуальный аналог).
-- [ ] Утвердить: WebAuthn verify → local unlock (PIN bypass), JWT refresh остаётся как есть.
-- [x] Подготовить `docs/api-sprint-8.md`.
+- [x] Утвердить длину PIN: **4 цифры**.
+- [x] Утвердить grace period resume: **60s** (константа в клиенте).
+- [x] Утвердить lockout: **5 неверных попыток → clear tokens → Login**.
+- [x] Утвердить logout: **сбрасывать PIN verifier** вместе с токенами.
+- [x] Утвердить уровень защиты: Must = UI gate; Should = encrypt refresh (KDF+AES-GCM) в том же спринте если успеваем.
+- [x] Подготовить `docs/api-sprint-8.md` под PIN + push title contract.
 
-Примечание: контракты зафиксированы в `docs/api-sprint-8.md` (register/login begin+finish, credentials list/delete).
-- [ ] Проверить на целевом iPhone: `PublicKeyCredential` в установленном PWA.
-
----
-
-## 2) Миграция и store
-
-- [ ] Миграция `webauthn_credentials` (+ индексы по `user_id`).
-- [ ] Repository: Create / ListByUser / GetByCredentialID / UpdateSignCount / Delete.
-- [ ] Challenge store (Redis предпочтительно; TTL 2–5 мин).
-- [ ] Тесты store.
+Примечание: решения §1 зафиксированы 2026-08-08: PIN length=4; grace=60s; lockout=5→clear tokens+PIN→Login; logout wipe PIN; Must=UI gate, Should=encrypt refresh. `docs/api-sprint-8.md` обновлён (PIN + push title).
+- [x] Утвердить визуал чата: бирюзовый tint + watermark (opacity/паттерн на глаз при реализации).
 
 ---
 
-## 3) WebAuthn service + HTTP
+## 2) Клиент — PIN storage / crypto
 
-- [ ] Config: `webauthn.rp_id`, `rp_origins`, `rp_display_name` в yaml + env.
-- [ ] `POST /webauthn/register/begin` + `finish`.
-- [ ] `POST /webauthn/login/begin` + `finish` (assertion для unlock).
-- [ ] `GET /webauthn/credentials`, `DELETE /webauthn/credentials/{id}`.
-- [ ] Rate-limit begin/finish.
-- [ ] Handler + service tests (mock authenticator data где возможно).
+- [x] Модуль PIN: setup / verify / change / clear (Preferences keys из api doc).
+- [x] Хранить только salt + hash (не plaintext PIN).
+- [x] (Should) Encrypt refresh token ключом из PIN; без PIN ciphertext нечитаем.
+- [x] Unit-тесты hash/verify (и encrypt round-trip если Should взят).
 
----
-
-## 4) Клиент PWA — регистрация
-
-- [ ] Feature detect platform authenticator.
-- [ ] После PIN setup / из Settings: «Включить Face ID».
-- [ ] `navigator.credentials.create` по options с сервера.
-- [ ] Сохранить локальный флаг `webauthn_enabled` (Preferences).
-- [ ] Обработка Cancel / NotAllowedError.
+Примечание: `mobile/src/pin.ts` — SHA-256(salt||PIN) verifier; PBKDF2+AES-GCM refresh (`enc:v1:`); константы PIN_LENGTH=4, grace/attempts. Тесты: `cd mobile && npm test` (vitest, 14 passed). Wire в UI/auth — §3+.
 
 ---
 
-## 5) Клиент PWA — unlock
+## 3) Клиент — Setup PIN
 
-- [ ] `startUnlock`: если webauthn_enabled → begin/get/finish → при успехе unlock vault без PIN prompt.
-- [ ] Fallback: PIN screen при ошибке/отмене.
+- [ ] Экран setup после успешного register/login, если PIN не задан.
+- [ ] Двойной ввод + валидация длины/цифр.
+- [ ] Не пускать на Home до успешного setup.
+
+---
+
+## 4) Клиент — Unlock PIN
+
+- [ ] Заменить auto-`startUnlockNoBiometric` на экран ввода PIN при `hasRefresh && pin_set`.
+- [ ] Успех → silent refresh → Home (как сейчас после gate).
+- [ ] Нет PIN при наличии refresh → Setup PIN (миграция существующих сессий).
+- [ ] «Выйти из аккаунта» с unlock-экрана работает.
+- [ ] Lockout по §1.
+
+---
+
+## 5) Клиент — Resume / background lock
+
+- [ ] На `visibilitychange` / hide: учитывать grace period.
+- [ ] После истечения grace при возврате → Unlock PIN (скрыть chat/home content).
+- [ ] Пока locked: не flush mark_read / не светить переписку.
+
+---
+
+## 6) Клиент — Settings и native
+
+- [ ] Смена PIN (старый → новый ×2).
 - [ ] Не ломать Capacitor `startUnlock` + LocalAuthentication.
-- [ ] UI Settings: список/удаление passkey.
+- [ ] (Optional) Native тоже может использовать PIN как fallback — не Must.
 
 ---
 
-## 6) Конфиг и prod
+## 7) Push — title = sender username (backend)
 
-- [ ] Prod config RP ID = `beepru.ru`, origin = `https://beepru.ru`.
-- [ ] Local: `localhost` origins для `task local:up`.
-- [ ] Секреты не требуются сверх TLS; не коммитить challenge keys если появятся.
-- [ ] Deploy + smoke iPhone PWA Face ID sheet.
-
----
-
-## 7) Тесты и качество
-
-- [ ] Unit/integration backend ceremonies.
-- [ ] `task fmt`, `task lint`, `task test`, `task test:integration`.
-- [ ] Manual: register passkey → kill PWA → Face ID unlock → Home.
-- [ ] Manual: revoke credential → снова PIN.
+- [ ] `enqueueOutbox`: добавить `sender_username` в payload (lookup по `sender_id`).
+- [ ] Worker / `push.Message`: прокинуть username.
+- [ ] `webpush.buildPayload`: `title` = username; `body` = «Новое сообщение»; preview **не** в title.
+- [ ] Unit-тесты webpush + outbox payload.
+- [ ] Manual: offline push показывает username отправителя.
 
 ---
 
-## 8) Документация и закрытие
+## 8) Клиент — фон чата
 
-- [ ] Обновить `docs/chat-architecture-plan.md` (Sprint 8).
-- [ ] `docs/known-limitations-sprint-8.md` (passwordless out of scope, Safari-tab limits, etc.).
+- [ ] CSS: чуть более тёмный фон области сообщений с бирюзовым оттенком (CSS variables).
+- [ ] Водяной знак / паттерн (низкая opacity), не мешает читать пузыри.
+- [ ] Smoke: свой/чужой bubble читаемы на новом фоне.
+
+---
+
+## 9) Тесты и качество
+
+- [ ] `task fmt`, `task lint`, `task test` (+ `task test:integration` если enqueue/outbox затронут).
+- [ ] Manual PWA: register → setup PIN → Home.
+- [ ] Manual: kill PWA → PIN → Home.
+- [ ] Manual: background > grace → PIN.
+- [ ] Manual: wrong PIN ×5 → Login; logout → login → setup PIN снова.
+- [ ] Manual: push title = username; chat background ok.
+
+---
+
+## 10) Документация и закрытие
+
+- [ ] Обновить `docs/chat-architecture-plan.md` (Sprint 8 DONE + known limits).
+- [ ] `docs/known-limitations-sprint-8.md` (UI-gate vs encrypt; WebAuthn deferred; no message text in push).
 - [ ] Чеклист → **DONE**.
 
 ---
 
-## 9) DoD
+## 11) DoD
 
-- [ ] Passkey register + biometric unlock в PWA на iPhone.
-- [ ] PIN fallback работает.
-- [ ] Revoke credential работает.
-- [ ] Native path не регрессировал.
-- [ ] Lint/tests green.
+- [ ] PIN обязателен после login/register в PWA.
+- [ ] Cold start и resume (после grace) требуют PIN.
+- [ ] Смена PIN / logout поведение по §1.
+- [ ] Push title = username отправителя.
+- [ ] Фон чата: бирюза + watermark.
+- [ ] Native Face ID path не регрессировал.
+- [ ] Lint/tests green; smoke на `beepru.ru` PWA.
 
 ---
 

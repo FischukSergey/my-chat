@@ -3,7 +3,7 @@
 Документ — living architecture: цели, принятые решения и фактическое устройство системы.  
 Детальные задачи и DoD — в `docs/sprint-N-plan.md` / `docs/sprint-N-checklist.md`. Контракты API — в `docs/api-sprint-N.md`.
 
-**Статус (2026-08):** спринты **1–7 DONE** (Sprint 6 функционально закрыт). Далее: **8** (PWA unlock / WebAuthn) и **9** (at-rest encryption сообщений; после 7, ортогонален 8). Prod: **https://beepru.ru**.
+**Статус (2026-08):** спринты **1–7 DONE** (Sprint 6 функционально закрыт). Далее: **8** (PWA unlock / PIN + push title/UX чата) и **9** (at-rest encryption сообщений; после 7, ортогонален 8). Prod: **https://beepru.ru**.
 
 ---
 
@@ -197,11 +197,11 @@ Unread badge считается запросами по receipts/messages — о
 1. Регистрация: `username` (3–50, `[a-zA-Z0-9_]`) + `password` (≥8) → bcrypt.
 2. Login: проверка credentials → access JWT (короткий TTL) + refresh; сессия в `auth_sessions`.
 3. Refresh с ротацией; reuse detection → revoke family.
-4. Клиент хранит refresh в secure storage; перед использованием — локальная биометрия (Capacitor).
+4. Клиент хранит refresh в Preferences / secure storage; native — локальная биометрия (Capacitor) перед чтением refresh; PWA — локальный PIN (Sprint 8), без серверной проверки PIN.
 5. Device binding (`X-Device-ID` на login/refresh → `403 device_mismatch`) — Sprint 6 §12.
 6. Rate limit login: **10 req / 60s / IP** → `429`.
 
-Внешний IdP не используется. Face ID не заменяет серверную аутентификацию.
+Внешний IdP не используется. Face ID / PIN не заменяют серверную аутентификацию (password + JWT).
 
 ---
 
@@ -302,8 +302,8 @@ PWA на Home Screen, Web Push (VAPID), badge + `badge_sync`, device binding, lo
 
 Детали: `docs/sprint-7-plan.md`, `docs/sprint-7-checklist.md`, `docs/api-sprint-7.md`.
 
-### Sprint 8 — PLANNED (PWA unlock / WebAuthn)
-Platform passkey (Face ID в установленном PWA); register/assert endpoints; PIN fallback; Capacitor native path не трогаем.
+### Sprint 8 — PLANNED (PWA unlock / PIN + UX)
+Локальный PIN после register/login; cold start + resume (grace); push title = username отправителя (не preview текста); фон чата бирюза + watermark. Без Redis/PIN API. WebAuthn — later (8.1+). Capacitor Face ID не ломать.
 
 Детали: `docs/sprint-8-plan.md`, `docs/sprint-8-checklist.md`, `docs/api-sprint-8.md`.
 
@@ -332,7 +332,7 @@ AES-256-GCM envelope (Вариант A): ciphertext в БД, plaintext толь�
    → закрыто в Sprint 7 (список + create by username).
 
 6. **Face ID недоступен в Safari/PWA через Capacitor**  
-   → Sprint 8: WebAuthn platform authenticator; PIN fallback.
+   → Sprint 8: локальный PIN unlock; WebAuthn platform passkey — follow-up после PIN.
 
 7. **Устаревший push endpoint**  
    → HTTP 404/410 → деактивировать подписку в БД.
@@ -344,7 +344,7 @@ AES-256-GCM envelope (Вариант A): ciphertext в БД, plaintext толь�
 
 ## 15) Что делать сейчас (фокус)
 
-1. **Sprint 8** — PWA unlock / WebAuthn (ортогонален 9).
+1. **Sprint 8** — PWA unlock / PIN + push title/UX чата (ортогонален 9).
 2. **Sprint 9** — at-rest encryption сообщений (после 7; не смешивать с 7/8).
 3. Хвосты Sprint 6/7 known-limitations — по приоритету (unregister devices, CountUnread vs deleted_at).
 4. Не переоткрывать Sprint 1–5; infra — поверх `deploy/prod/`.
