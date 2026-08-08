@@ -61,6 +61,13 @@
     input[type="text"]:focus,
     input[type="password"]:focus { border-color: var(--primary); }
 
+    input.pin-input {
+      letter-spacing: 0.35em;
+      text-align: center;
+      font-size: 22px;
+      font-variant-numeric: tabular-nums;
+    }
+
     button {
       width: 100%; padding: 14px; border: none; border-radius: 12px;
       font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 12px;
@@ -437,6 +444,41 @@
 
         <button id="btn-register" class="btn-primary">Создать аккаунт</button>
         <button id="btn-back-to-login" class="btn-secondary">Назад ко входу</button>
+      </div>
+    </div>
+
+    <!-- ===== Setup PIN (после login/register) ===== -->
+    <div id="setup-pin" class="screen">
+      <div class="card">
+        <h1>Установите PIN</h1>
+        <p class="subtitle">4 цифры для разблокировки приложения на этом устройстве</p>
+
+        <label for="setup-pin-input">PIN</label>
+        <input
+          id="setup-pin-input"
+          class="pin-input"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="4"
+          autocomplete="new-password"
+          placeholder="••••"
+        />
+
+        <label for="setup-pin-confirm">Повторите PIN</label>
+        <input
+          id="setup-pin-confirm"
+          class="pin-input"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="4"
+          autocomplete="new-password"
+          placeholder="••••"
+        />
+
+        <button id="btn-setup-pin" class="btn-primary" type="button">Сохранить PIN</button>
+        <button id="btn-logout-from-setup-pin" class="btn-secondary" type="button">Выйти из аккаунта</button>
       </div>
     </div>
 

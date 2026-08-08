@@ -3,10 +3,11 @@
  *
  *   [register] ← кнопка «Зарегистрироваться» на экране Login
  *   [login]    ← нет refresh token / session_compromised / logout
- *      ↓ после login
+ *      ↓ после login/register
+ *   [setup-pin] ← PIN ещё не задан на устройстве
  *   [unlock]   ← есть refresh token (cold start)
- *      ↓ биометрия + refresh
- *   [home]     ← список диалогов
+ *      ↓ биометрия / PIN + refresh
+ *   [home]     ← список диалогов (только если PIN задан)
  *      ↓ новый чат / тап по строке / deep link
  *   [new-chat] ← username (+ search)
  *   [chat]     ← открытый диалог
@@ -21,6 +22,7 @@ import {
   hasRefreshToken,
   isBiometricAvailable,
   saveTokens,
+  setRefreshToken,
   getRefreshToken,
 } from "./auth";
 import {
@@ -45,6 +47,15 @@ import {
   type DialogListItem,
   type Message,
 } from "./api";
+import {
+  PIN_LENGTH,
+  clearPin,
+  encryptRefreshToken,
+  isEncryptedRefresh,
+  isPinSet,
+  isValidPinFormat,
+  setupPin,
+} from "./pin";
 
 // --- DOM helpers ---
 
@@ -54,9 +65,24 @@ function el<T extends HTMLElement>(id: string): T {
   return e as T;
 }
 
-type ScreenName = "login" | "register" | "unlock" | "home" | "new-chat" | "chat";
+type ScreenName =
+  | "login"
+  | "register"
+  | "setup-pin"
+  | "unlock"
+  | "home"
+  | "new-chat"
+  | "chat";
 
-const ALL_SCREENS: ScreenName[] = ["login", "register", "unlock", "home", "new-chat", "chat"];
+const ALL_SCREENS: ScreenName[] = [
+  "login",
+  "register",
+  "setup-pin",
+  "unlock",
+  "home",
+  "new-chat",
+  "chat",
+];
 
 function showScreen(name: ScreenName): void {
   for (const s of ALL_SCREENS) {
@@ -630,6 +656,12 @@ async function handleCreateDialog(): Promise<void> {
 }
 
 async function loadHome(): Promise<void> {
+  // Gate: без PIN на Home нельзя (login/register/cold-start миграция)
+  if (!(await isPinSet())) {
+    log("loadHome: PIN не задан → Setup PIN");
+    showSetupPinScreen();
+    return;
+  }
   showScreen("home");
   setStatus("Загрузка...");
 
@@ -778,6 +810,79 @@ async function startUnlock(): Promise<void> {
   }
 }
 
+// --- Экран: Setup PIN ---
+
+function digitsOnly(value: string): string {
+  return value.replace(/\D/g, "").slice(0, PIN_LENGTH);
+}
+
+function bindPinInput(id: string): void {
+  const input = el<HTMLInputElement>(id);
+  input.addEventListener("input", () => {
+    const next = digitsOnly(input.value);
+    if (input.value !== next) input.value = next;
+  });
+}
+
+function showSetupPinScreen(): void {
+  showScreen("setup-pin");
+  setStatus("");
+  const pinInput = el<HTMLInputElement>("setup-pin-input");
+  const confirmInput = el<HTMLInputElement>("setup-pin-confirm");
+  pinInput.value = "";
+  confirmInput.value = "";
+  pinInput.focus();
+}
+
+/** После успешного login/register: Setup PIN или Home. */
+async function enterAppAfterAuth(): Promise<void> {
+  if (!(await isPinSet())) {
+    log("PIN не задан → Setup PIN");
+    showSetupPinScreen();
+    return;
+  }
+  await loadHome();
+}
+
+async function handleSetupPin(): Promise<void> {
+  const pinInput = el<HTMLInputElement>("setup-pin-input");
+  const confirmInput = el<HTMLInputElement>("setup-pin-confirm");
+  const pin = digitsOnly(pinInput.value);
+  const confirm = digitsOnly(confirmInput.value);
+
+  if (!isValidPinFormat(pin)) {
+    setStatus(`PIN должен состоять из ${PIN_LENGTH} цифр`, true);
+    return;
+  }
+  if (pin !== confirm) {
+    setStatus("PIN не совпадает", true);
+    return;
+  }
+
+  setStatus("Сохранение PIN...");
+  log("setup PIN...");
+  try {
+    await setupPin(pin);
+
+    // Should: зашифровать refresh ключом из PIN
+    const rt = await getRefreshTokenRaw();
+    if (rt && !isEncryptedRefresh(rt)) {
+      const blob = await encryptRefreshToken(pin, rt);
+      await setRefreshToken(blob);
+      log("refresh token зашифрован PIN");
+    }
+
+    pinInput.value = "";
+    confirmInput.value = "";
+    setStatus("");
+    log("setup PIN OK → Home");
+    await loadHome();
+  } catch (err) {
+    setStatus(String(err), true);
+    log(`ERR setup PIN: ${String(err)}`);
+  }
+}
+
 // --- Экран: Login ---
 
 function showLoginScreen(): void {
@@ -817,7 +922,7 @@ async function handleLogin(): Promise<void> {
     saveUsername(username);
     passwordInput.value = "";
     log(`login OK, user: ${userId}, session: ${result.session_id}`);
-    await loadHome();
+    await enterAppAfterAuth();
   } catch (err) {
     setStatus(String(err), true);
     log(`ERR login: ${String(err)}`);
@@ -850,13 +955,21 @@ async function handleRegister(): Promise<void> {
   try {
     await apiRegister(username, password);
     log(`register OK: ${username}`);
-    // После успешной регистрации — переход на Login с предзаполненным username
+    // Сразу login → Setup PIN (не пускать на Home без PIN)
+    setStatus("Вход...");
+    const result = await apiLogin(username, password);
+    const userId = extractUserIdFromJwt(result.access_token);
+    await saveTokens({
+      accessToken: result.access_token,
+      refreshToken: result.refresh_token,
+      sessionId: result.session_id,
+      userId,
+    });
+    saveUsername(username);
     passwordInput.value = "";
-    confirmInput.value  = "";
-    const loginInput = document.getElementById("username-input") as HTMLInputElement | null;
-    if (loginInput) loginInput.value = username;
-    setStatus("Аккаунт создан! Войдите в систему.");
-    showScreen("login");
+    confirmInput.value = "";
+    log(`register→login OK, user: ${userId}`);
+    await enterAppAfterAuth();
   } catch (err) {
     setStatus(String(err), true);
     log(`ERR register: ${String(err)}`);
@@ -870,16 +983,25 @@ async function handleLogout(): Promise<void> {
   setStatus("Выход...");
   log("logout...");
   try {
-    const rt = await getRefreshToken("Подтвердите выход");
+    const biometricOk = await isBiometricAvailable();
+    const rt = biometricOk
+      ? await getRefreshToken("Подтвердите выход")
+      : await getRefreshTokenRaw();
     if (rt) {
-      await apiLogout(rt);
-      log("logout: сессия отозвана на сервере");
+      // ciphertext нельзя revoke без PIN; plaintext — как раньше
+      if (!isEncryptedRefresh(rt)) {
+        await apiLogout(rt);
+        log("logout: сессия отозвана на сервере");
+      } else {
+        log("logout: refresh зашифрован — server revoke пропущен");
+      }
     }
   } catch {
     log("logout: server revoke пропущен (best-effort)");
   } finally {
     await clearAllTokens();
-    log("токены очищены");
+    await clearPin();
+    log("токены и PIN очищены");
     showLoginScreen();
   }
 }
@@ -1038,6 +1160,18 @@ async function init(): Promise<void> {
   el("btn-back-to-login").addEventListener("click", showLoginScreen);
   el("reg-confirm-input").addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Enter") void handleRegister();
+  });
+
+  // Setup PIN screen
+  bindPinInput("setup-pin-input");
+  bindPinInput("setup-pin-confirm");
+  el("btn-setup-pin").addEventListener("click", () => void handleSetupPin());
+  el("btn-logout-from-setup-pin").addEventListener("click", () => void handleLogout());
+  el("setup-pin-input").addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") el<HTMLInputElement>("setup-pin-confirm").focus();
+  });
+  el("setup-pin-confirm").addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") void handleSetupPin();
   });
 
   // Unlock screen

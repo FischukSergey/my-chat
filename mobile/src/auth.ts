@@ -88,6 +88,11 @@ export async function hasRefreshToken(): Promise<boolean> {
   return !!value;
 }
 
+/** Перезаписывает refresh (в т.ч. ciphertext после encrypt PIN). */
+export async function setRefreshToken(value: string): Promise<void> {
+  await Preferences.set({ key: KEY_REFRESH, value });
+}
+
 /**
  * Читает refresh token без биометрии.
  * Использовать только в среде без биометрии (браузер, dev).

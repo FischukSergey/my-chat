@@ -40,9 +40,11 @@
 
 ## 3) Клиент — Setup PIN
 
-- [ ] Экран setup после успешного register/login, если PIN не задан.
-- [ ] Двойной ввод + валидация длины/цифр.
-- [ ] Не пускать на Home до успешного setup.
+- [x] Экран setup после успешного register/login, если PIN не задан.
+- [x] Двойной ввод + валидация длины/цифр.
+- [x] Не пускать на Home до успешного setup.
+
+Примечание: экран `#setup-pin`; после login и register→auto-login → `enterAppAfterAuth`; `loadHome` gated через `isPinSet`; при setup encrypt refresh (`enc:v1:`); logout wipe PIN.
 
 ---
 

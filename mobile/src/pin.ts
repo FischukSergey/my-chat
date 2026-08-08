@@ -55,6 +55,13 @@ export async function pinsMatch(
   return diff === 0;
 }
 
+/** Copy so WebCrypto gets a concrete ArrayBuffer-backed view (TS DOM types). */
+function asBufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  const copy = new Uint8Array(bytes.length);
+  copy.set(bytes);
+  return copy;
+}
+
 async function deriveAesKey(pin: string, salt: Uint8Array): Promise<CryptoKey> {
   const baseKey = await crypto.subtle.importKey(
     "raw",
@@ -66,7 +73,7 @@ async function deriveAesKey(pin: string, salt: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt,
+      salt: asBufferSource(salt),
       iterations: PBKDF2_ITERATIONS,
       hash: "SHA-256",
     },
@@ -84,8 +91,7 @@ export async function encryptWithPin(
   plaintext: string
 ): Promise<string> {
   const key = await deriveAesKey(pin, salt);
-  const nonce = new Uint8Array(12);
-  crypto.getRandomValues(nonce);
+  const nonce = asBufferSource(crypto.getRandomValues(new Uint8Array(12)));
   const cipherBuf = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv: nonce },
     key,
@@ -107,8 +113,8 @@ export async function decryptWithPin(
   if (raw.length < 13) {
     throw new Error("invalid ciphertext");
   }
-  const nonce = raw.slice(0, 12);
-  const cipher = raw.slice(12);
+  const nonce = asBufferSource(raw.slice(0, 12));
+  const cipher = asBufferSource(raw.slice(12));
   const key = await deriveAesKey(pin, salt);
   const plainBuf = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: nonce },
