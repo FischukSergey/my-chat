@@ -91,14 +91,15 @@ func makeTask(t *testing.T, userID string, attempt int) store.NotificationOutbox
 	t.Helper()
 	msgID := uuid.NewString()
 	raw, err := json.Marshal(map[string]any{
-		"event_type":   eventTypeMessageNew,
-		"user_id":      userID,
-		"message_id":   msgID,
-		"dialog_id":    uuid.NewString(),
-		"sender_id":    uuid.NewString(),
-		"preview":      "hello",
-		"unread_count": 1,
-		"dedup_key":    "message_new:" + msgID + ":" + userID,
+		"event_type":      eventTypeMessageNew,
+		"user_id":         userID,
+		"message_id":      msgID,
+		"dialog_id":       uuid.NewString(),
+		"sender_id":       uuid.NewString(),
+		"sender_username": "alice",
+		"preview":         "hello",
+		"unread_count":    1,
+		"dedup_key":       "message_new:" + msgID + ":" + userID,
 	})
 	if err != nil {
 		t.Fatalf("marshal task payload: %v", err)
@@ -270,6 +271,32 @@ func TestWorker_BadgeEqualsActualUnreadCount(t *testing.T) {
 	}
 	if gotBadge != 7 {
 		t.Errorf("expected Badge=7 (actual unread), got %d", gotBadge)
+	}
+}
+
+func TestWorker_PassesSenderUsernameToProvider(t *testing.T) {
+	userID := uuid.NewString()
+	task := makeTask(t, userID, 1)
+
+	outbox := &fakeOutbox{tasks: []store.NotificationOutbox{task}}
+	devices := &fakeDevices{devices: map[string][]store.Device{
+		userID: {{ID: uuid.NewString(), UserID: userID, Platform: platformIOSTest, PushToken: pushTokenTest, Enabled: true}},
+	}}
+
+	var gotUsername string
+	provider := push.NewNoopProvider()
+	provider.SendFunc = func(_ context.Context, msg push.Message) error {
+		gotUsername = msg.SenderUsername
+		return nil
+	}
+
+	w := newWorker(outbox, devices, provider)
+	_, err := w.RunOnce(context.Background())
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if gotUsername != "alice" {
+		t.Errorf("expected SenderUsername=alice, got %q", gotUsername)
 	}
 }
 

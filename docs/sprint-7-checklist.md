@@ -8,7 +8,7 @@
 - Sprint 6 закрыт или функционально готов (PWA, login username/password, chat API).
 - На prod/local есть минимум два тестовых пользователя.
 
-**Статус:** PLANNED
+**Статус:** DONE
 
 ---
 
@@ -98,26 +98,28 @@
 - [x] `task fmt`, `task lint`, `task test`, `task test:integration`.
 - [x] Smoke prod: два аккаунта, чат по username, список с обеих сторон.
 
-Примечание: unit — `services/chat/service_test.go` + `handlers/chat/handler_test.go`; E2E integration — `TestIntegration_RegisterCreateListSend`. `task fmt` / `lint` / `test` / `test:integration` green. Smoke **local** (`task local:up` + seed alice/bob): login → POST /dialogs → list с обеих сторон → send → bob видит preview+unread. Повтор на beepru.ru — после deploy.
+Примечание: unit — `services/chat/service_test.go` + `handlers/chat/handler_test.go`; E2E integration — `TestIntegration_RegisterCreateListSend`. `task fmt` / `lint` / `test` / `test:integration` green. Smoke local + ручной прогон действующего функционала (подтверждено 2026-08-07).
 
 ---
 
 ## 8) Документация и закрытие
 
-- [ ] Обновить `docs/chat-architecture-plan.md` (статус Sprint 7).
-- [ ] `docs/known-limitations-sprint-7.md`.
-- [ ] Чеклист footer → **DONE**.
+- [x] Обновить `docs/chat-architecture-plan.md` (статус Sprint 7).
+- [x] `docs/known-limitations-sprint-7.md`.
+- [x] Чеклист footer → **DONE**.
 
 ---
 
 ## 9) Критерии готовности (DoD)
 
-- [ ] Обычный пользователь не вводит UUID диалога.
-- [ ] Список чатов с username собеседника.
-- [ ] Новый чат по username работает end-to-end.
-- [ ] Push/deep-link по `dialog_id` открывает нужный чат.
-- [ ] Lint/tests green.
+- [x] Обычный пользователь не вводит UUID диалога.
+- [x] Список чатов с username собеседника.
+- [x] Новый чат по username работает end-to-end.
+- [x] Push/deep-link по `dialog_id` открывает нужный чат.
+- [x] Lint/tests green.
+
+Примечание: DoD подтверждён smoke/local + ручным тестом функционала (2026-08-07); deep link / SW `open_dialog` сохранены; WS refresh списка на Home.
 
 ---
 
-**Sprint 7 — PLANNED**
+**Sprint 7 — DONE**

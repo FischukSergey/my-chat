@@ -18,6 +18,9 @@
       --muted:   #8e8e93;
       --radius:  14px;
       --shadow:  0 2px 12px rgba(0,0,0,.08);
+      /* Sprint 8: область сообщений — чуть темнее + бирюзовый tint */
+      --chat-bg: #b9d4d0;
+      --chat-bg-deep: #a8c9c4;
     }
 
     html, body {
@@ -60,6 +63,13 @@
     }
     input[type="text"]:focus,
     input[type="password"]:focus { border-color: var(--primary); }
+
+    input.pin-input {
+      letter-spacing: 0.35em;
+      text-align: center;
+      font-size: 22px;
+      font-variant-numeric: tabular-nums;
+    }
 
     button {
       width: 100%; padding: 14px; border: none; border-radius: 12px;
@@ -279,8 +289,14 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
-      background: var(--bg);
       min-height: 0;
+      /* бирюзовый tint + мягкий градиент (чуть темнее прежнего --bg) */
+      background-color: var(--chat-bg);
+      background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cg fill='none' stroke='%23084e48' stroke-width='1.15' opacity='0.11'%3E%3Cpath d='M28 42h48a14 14 0 0 1 14 14v18a14 14 0 0 1-14 14H62l-12 10v-10H28a14 14 0 0 1-14-14V56a14 14 0 0 1 14-14z'/%3E%3Cpath d='M78 18h34a10 10 0 0 1 10 10v12a10 10 0 0 1-10 10h-8l-8 7v-7h-18a10 10 0 0 1-10-10V28a10 10 0 0 1 10-10z'/%3E%3C/g%3E%3Ctext x='70' y='118' text-anchor='middle' fill='%23084e48' font-family='-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif' font-size='12' font-weight='600' opacity='0.1'%3Emy-chat%3C/text%3E%3C/svg%3E"),
+        linear-gradient(165deg, var(--chat-bg) 0%, var(--chat-bg-deep) 100%);
+      background-size: 140px 140px, auto;
+      background-repeat: repeat, no-repeat;
     }
 
     .bubble {
@@ -290,6 +306,8 @@
       font-size: 15px;
       line-height: 1.4;
       word-break: break-word;
+      position: relative;
+      z-index: 1;
     }
     .bubble.outgoing {
       align-self: flex-end;
@@ -302,7 +320,7 @@
       background: var(--card);
       color: var(--text);
       border-bottom-left-radius: 5px;
-      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      box-shadow: 0 1px 4px rgba(0,0,0,.10);
     }
     .bubble-body { margin-bottom: 2px; }
     .bubble-time { font-size: 11px; opacity: .55; text-align: right; }
@@ -440,14 +458,67 @@
       </div>
     </div>
 
-    <!-- ===== Unlock screen (cold start) ===== -->
+    <!-- ===== Setup PIN (после login/register) ===== -->
+    <div id="setup-pin" class="screen">
+      <div class="card">
+        <h1>Установите PIN</h1>
+        <p class="subtitle">4 цифры для разблокировки приложения на этом устройстве</p>
+
+        <label for="setup-pin-input">PIN</label>
+        <input
+          id="setup-pin-input"
+          class="pin-input"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="4"
+          autocomplete="new-password"
+          placeholder="••••"
+        />
+
+        <label for="setup-pin-confirm">Повторите PIN</label>
+        <input
+          id="setup-pin-confirm"
+          class="pin-input"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="4"
+          autocomplete="new-password"
+          placeholder="••••"
+        />
+
+        <button id="btn-setup-pin" class="btn-primary" type="button">Сохранить PIN</button>
+        <button id="btn-logout-from-setup-pin" class="btn-secondary" type="button">Выйти из аккаунта</button>
+      </div>
+    </div>
+
+    <!-- ===== Unlock screen (cold start: PIN / Face ID) ===== -->
     <div id="unlock" class="screen">
       <div class="card" style="text-align:center">
         <div class="lock-icon">🔒</div>
         <h1>my-chat</h1>
-        <p class="subtitle">Подтвердите личность для разблокировки</p>
-        <button id="btn-retry-unlock" class="btn-primary">Разблокировать</button>
-        <button id="btn-logout-from-unlock" class="btn-secondary">Выйти из аккаунта</button>
+        <p class="subtitle" id="unlock-subtitle">Введите PIN для разблокировки</p>
+
+        <div id="unlock-pin-block" style="text-align:left">
+          <label for="unlock-pin-input">PIN</label>
+          <input
+            id="unlock-pin-input"
+            class="pin-input"
+            type="password"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            maxlength="4"
+            autocomplete="one-time-code"
+            placeholder="••••"
+          />
+          <button id="btn-unlock-pin" class="btn-primary" type="button">Разблокировать</button>
+        </div>
+
+        <button id="btn-retry-unlock" class="btn-primary" type="button" style="display:none">
+          Разблокировать Face ID
+        </button>
+        <button id="btn-logout-from-unlock" class="btn-secondary" type="button">Выйти из аккаунта</button>
       </div>
     </div>
 
@@ -474,7 +545,55 @@
           <button id="btn-new-chat-empty" class="btn-primary" type="button">Новый чат</button>
         </div>
 
+        <button id="btn-change-pin" class="btn-secondary" type="button">Сменить PIN</button>
         <button id="btn-logout" class="btn-danger" type="button">Выйти</button>
+      </div>
+    </div>
+
+    <!-- ===== Change PIN (Settings) ===== -->
+    <div id="change-pin" class="screen">
+      <div class="card">
+        <h1>Сменить PIN</h1>
+        <p class="subtitle">Введите текущий PIN и задайте новый (4 цифры)</p>
+
+        <label for="change-pin-old">Текущий PIN</label>
+        <input
+          id="change-pin-old"
+          class="pin-input"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="4"
+          autocomplete="current-password"
+          placeholder="••••"
+        />
+
+        <label for="change-pin-new">Новый PIN</label>
+        <input
+          id="change-pin-new"
+          class="pin-input"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="4"
+          autocomplete="new-password"
+          placeholder="••••"
+        />
+
+        <label for="change-pin-confirm">Повторите новый PIN</label>
+        <input
+          id="change-pin-confirm"
+          class="pin-input"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="4"
+          autocomplete="new-password"
+          placeholder="••••"
+        />
+
+        <button id="btn-change-pin-save" class="btn-primary" type="button">Сохранить</button>
+        <button id="btn-change-pin-back" class="btn-secondary" type="button">Назад</button>
       </div>
     </div>
 

@@ -71,16 +71,17 @@ func NewWorker(
 	}
 }
 
-// outboxPayload соответствует структуре payload из docs/api-sprint-2.md.
+// outboxPayload соответствует структуре payload из docs/api-sprint-8.md (message_new).
 type outboxPayload struct {
-	EventType   string `json:"event_type"`
-	UserID      string `json:"user_id"`
-	MessageID   string `json:"message_id"`
-	DialogID    string `json:"dialog_id"`
-	SenderID    string `json:"sender_id"`
-	Preview     string `json:"preview"`
-	UnreadCount int    `json:"unread_count"`
-	DedupKey    string `json:"dedup_key"`
+	EventType      string `json:"event_type"`
+	UserID         string `json:"user_id"`
+	MessageID      string `json:"message_id"`
+	DialogID       string `json:"dialog_id"`
+	SenderID       string `json:"sender_id"`
+	SenderUsername string `json:"sender_username"`
+	Preview        string `json:"preview"`
+	UnreadCount    int    `json:"unread_count"`
+	DedupKey       string `json:"dedup_key"`
 }
 
 // RunOnce захватывает один батч задач и обрабатывает их.
@@ -178,16 +179,17 @@ func (w *Worker) processTask(ctx context.Context, task store.NotificationOutbox)
 	var sendErr error
 	for _, device := range devices {
 		msg := push.Message{
-			Device:      device,
-			EventType:   payload.EventType,
-			UserID:      payload.UserID,
-			MessageID:   payload.MessageID,
-			DialogID:    payload.DialogID,
-			SenderID:    payload.SenderID,
-			Preview:     payload.Preview,
-			UnreadCount: payload.UnreadCount,
-			Badge:       badge,
-			DedupKey:    payload.DedupKey,
+			Device:         device,
+			EventType:      payload.EventType,
+			UserID:         payload.UserID,
+			MessageID:      payload.MessageID,
+			DialogID:       payload.DialogID,
+			SenderID:       payload.SenderID,
+			SenderUsername: payload.SenderUsername,
+			Preview:        payload.Preview,
+			UnreadCount:    payload.UnreadCount,
+			Badge:          badge,
+			DedupKey:       payload.DedupKey,
 		}
 		if err = w.provider.Send(ctx, msg); err != nil {
 			if errors.Is(err, push.ErrSubscriptionGone) {

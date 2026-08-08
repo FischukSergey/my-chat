@@ -69,7 +69,7 @@
 ## 4) Что не входит (out of scope)
 
 - Групповые чаты, названия чатов, аватарки.
-- Face ID / WebAuthn (→ Sprint 8).
+- PWA PIN unlock (→ Sprint 8); WebAuthn later.
 - At-rest / E2EE шифрование сообщений (→ Sprint 9; E2EE вне scope).
 - Typing indicators, presence, поиск по тексту сообщений.
 - Изменение формата WS-событий сообщений.
@@ -87,11 +87,13 @@
 
 ## 6) Критерии готовности (DoD)
 
-- [ ] UUID диалога не нужно вводить для обычного сценария.
-- [ ] Список чатов показывает username собеседника.
-- [ ] Новый чат создаётся по username через API + UI.
-- [ ] Push / deep link по `dialog_id` по-прежнему открывает чат.
-- [ ] Lint/tests green; smoke на prod с двумя аккаунтами.
+- [x] UUID диалога не нужно вводить для обычного сценария.
+- [x] Список чатов показывает username собеседника.
+- [x] Новый чат создаётся по username через API + UI.
+- [x] Push / deep link по `dialog_id` по-прежнему открывает чат.
+- [x] Lint/tests green; smoke на prod с двумя аккаунтами.
+
+Примечание: закрыто 2026-08-07 — см. `docs/sprint-7-checklist.md`, `docs/known-limitations-sprint-7.md`.
 
 ## 7) Артефакты
 

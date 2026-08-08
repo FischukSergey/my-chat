@@ -80,11 +80,12 @@ func (m *mockHTTPClient) Do(_ *http.Request) (*http.Response, error) {
 
 func TestBuildPayload_Alert(t *testing.T) {
 	msg := push.Message{
-		EventType: eventTypeMessage,
-		Preview:   "привет",
-		Badge:     3,
-		DialogID:  "dialog-1",
-		MessageID: "msg-42",
+		EventType:      eventTypeMessage,
+		SenderUsername: "alice",
+		Preview:        "секретный текст",
+		Badge:          3,
+		DialogID:       "dialog-1",
+		MessageID:      "msg-42",
 	}
 
 	data, err := push.BuildPayload(msg)
@@ -98,7 +99,7 @@ func TestBuildPayload_Alert(t *testing.T) {
 	}
 
 	checks := map[string]any{
-		"title":      "привет",
+		"title":      "alice",
 		"body":       "Новое сообщение",
 		"dialog_id":  "dialog-1",
 		"message_id": "msg-42",
@@ -110,6 +111,33 @@ func TestBuildPayload_Alert(t *testing.T) {
 	}
 	if got["badge"].(float64) != 3 {
 		t.Errorf("badge: got %v, want 3", got["badge"])
+	}
+	if got["title"] == msg.Preview {
+		t.Error("title must not be message preview")
+	}
+}
+
+func TestBuildPayload_Alert_UsernameFallback(t *testing.T) {
+	msg := push.Message{
+		EventType: eventTypeMessage,
+		Preview:   "привет",
+		Badge:     1,
+	}
+
+	data, err := push.BuildPayload(msg)
+	if err != nil {
+		t.Fatalf("BuildPayload: %v", err)
+	}
+
+	var got map[string]any
+	if err = json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["title"] != "user" {
+		t.Errorf("title: got %v, want user (fallback)", got["title"])
+	}
+	if got["body"] != "Новое сообщение" {
+		t.Errorf("body: got %v", got["body"])
 	}
 }
 

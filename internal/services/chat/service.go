@@ -178,29 +178,32 @@ func (s *Service) enqueueOutbox(ctx context.Context, msg store.Message, receiver
 	}
 
 	dedupKey := fmt.Sprintf("message_new:%s:%s", msg.ID, receiverID)
+	senderUsername := lookupSenderUsername(ctx, s.users, msg.SenderID)
 
 	type outboxPayload struct {
-		EventType   string `json:"event_type"`
-		UserID      string `json:"user_id"`
-		MessageID   string `json:"message_id"`
-		DialogID    string `json:"dialog_id"`
-		SenderID    string `json:"sender_id"`
-		Preview     string `json:"preview"`
-		UnreadCount int    `json:"unread_count"`
-		CreatedAt   string `json:"created_at"`
-		DedupKey    string `json:"dedup_key"`
+		EventType      string `json:"event_type"`
+		UserID         string `json:"user_id"`
+		MessageID      string `json:"message_id"`
+		DialogID       string `json:"dialog_id"`
+		SenderID       string `json:"sender_id"`
+		SenderUsername string `json:"sender_username"`
+		Preview        string `json:"preview"`
+		UnreadCount    int    `json:"unread_count"`
+		CreatedAt      string `json:"created_at"`
+		DedupKey       string `json:"dedup_key"`
 	}
 
 	payloadBytes, err := json.Marshal(outboxPayload{
-		EventType:   "message_new",
-		UserID:      receiverID,
-		MessageID:   msg.ID,
-		DialogID:    msg.DialogID,
-		SenderID:    msg.SenderID,
-		Preview:     buildPreview(msg.Body),
-		UnreadCount: unreadCount,
-		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
-		DedupKey:    dedupKey,
+		EventType:      "message_new",
+		UserID:         receiverID,
+		MessageID:      msg.ID,
+		DialogID:       msg.DialogID,
+		SenderID:       msg.SenderID,
+		SenderUsername: senderUsername,
+		Preview:        buildPreview(msg.Body),
+		UnreadCount:    unreadCount,
+		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+		DedupKey:       dedupKey,
 	})
 	if err != nil {
 		return
@@ -215,6 +218,19 @@ func (s *Service) enqueueOutbox(ctx context.Context, msg store.Message, receiver
 	}
 
 	_ = s.outbox.Enqueue(ctx, task)
+}
+
+// lookupSenderUsername возвращает username отправителя или fallback "user".
+func lookupSenderUsername(ctx context.Context, users userRepository, senderID string) string {
+	const fallback = "user"
+	if users == nil || senderID == "" {
+		return fallback
+	}
+	u, err := users.FindByID(ctx, senderID)
+	if err != nil || strings.TrimSpace(u.Username) == "" {
+		return fallback
+	}
+	return u.Username
 }
 
 // BuildPreview обрезает текст до previewMaxRunes рун и нормализует переносы строк.
