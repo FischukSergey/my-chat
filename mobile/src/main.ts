@@ -49,7 +49,9 @@ import {
 } from "./api";
 import {
   PIN_LENGTH,
+  PIN_LOCK_GRACE_MS,
   PIN_MAX_ATTEMPTS,
+  changePin,
   clearPin,
   decryptRefreshToken,
   encryptRefreshToken,
@@ -60,8 +62,15 @@ import {
   verifyPin,
 } from "./pin";
 
-/** Счётчик неверных PIN на cold-start unlock (lockout → wipe). */
+/** Счётчик неверных PIN на unlock (lockout → wipe). */
 let pinFailCount = 0;
+
+/** Resume lock: UI скрыт, ждём PIN (JWT может остаться в памяти). */
+let appLocked = false;
+let hiddenAt: number | null = null;
+let screenBeforeLock: ScreenName | null = null;
+let dialogBeforeLock = "";
+let peerBeforeLock = "";
 
 // --- DOM helpers ---
 
@@ -77,6 +86,7 @@ type ScreenName =
   | "setup-pin"
   | "unlock"
   | "home"
+  | "change-pin"
   | "new-chat"
   | "chat";
 
@@ -86,6 +96,7 @@ const ALL_SCREENS: ScreenName[] = [
   "setup-pin",
   "unlock",
   "home",
+  "change-pin",
   "new-chat",
   "chat",
 ];
@@ -99,6 +110,30 @@ function showScreen(name: ScreenName): void {
   const logDetails = document.getElementById("log-details");
   if (statusBar) statusBar.style.display = name === "chat" ? "none" : "";
   if (logDetails) (logDetails as HTMLElement).style.display = name === "chat" ? "none" : "";
+}
+
+function getActiveScreen(): ScreenName | null {
+  for (const s of ALL_SCREENS) {
+    if (document.getElementById(s)?.classList.contains("active")) return s;
+  }
+  return null;
+}
+
+function isAuthenticatedAppScreen(name: ScreenName): boolean {
+  return (
+    name === "home" ||
+    name === "chat" ||
+    name === "new-chat" ||
+    name === "change-pin"
+  );
+}
+
+function resetResumeLockState(): void {
+  appLocked = false;
+  hiddenAt = null;
+  screenBeforeLock = null;
+  dialogBeforeLock = "";
+  peerBeforeLock = "";
 }
 
 function setStatus(msg: string, isError = false): void {
@@ -387,16 +422,16 @@ async function syncAppBadge(count: number): Promise<void> {
   }
 }
 
-// --- Page Visibility / markRead ---
+// --- Page Visibility / markRead / resume lock ---
 //
-// markRead вызывается только когда диалог видим (document.hidden === false).
-// Если вкладка скрыта — ID складываются в pendingMarkRead и отправляются
-// при возврате фокуса через visibilitychange.
+// markRead вызывается только когда диалог видим и UI не locked.
+// Если вкладка скрыта или appLocked — ID в pendingMarkRead.
+// Resume: после grace (PIN_LOCK_GRACE_MS) → Unlock PIN, контент скрыт.
 
 const pendingMarkRead = new Set<string>();
 
 function tryMarkRead(messageId: string): void {
-  if (!document.hidden) {
+  if (!document.hidden && !appLocked) {
     void markRead(messageId).catch(() => undefined);
   } else {
     pendingMarkRead.add(messageId);
@@ -404,11 +439,75 @@ function tryMarkRead(messageId: string): void {
 }
 
 function flushPendingMarkRead(): void {
+  if (appLocked) return;
   if (pendingMarkRead.size === 0) return;
   const ids = [...pendingMarkRead];
   pendingMarkRead.clear();
   for (const id of ids) {
     void markRead(id).catch(() => undefined);
+  }
+}
+
+function onAppHidden(): void {
+  if (appLocked) return;
+  const active = getActiveScreen();
+  if (!active || !isAuthenticatedAppScreen(active)) return;
+  hiddenAt = Date.now();
+}
+
+async function lockAppForResume(): Promise<void> {
+  const active = getActiveScreen();
+  if (!active || !isAuthenticatedAppScreen(active)) return;
+  if (!(await isPinSet())) return;
+
+  screenBeforeLock = active;
+  dialogBeforeLock = currentDialogId;
+  peerBeforeLock = currentPeerUsername;
+  appLocked = true;
+  log(`resume lock (grace ${PIN_LOCK_GRACE_MS}ms exceeded)`);
+  await startUnlockWithPin();
+}
+
+async function unlockAfterResume(): Promise<void> {
+  const target = screenBeforeLock ?? "home";
+  const dialogId = dialogBeforeLock;
+  const peer = peerBeforeLock;
+  resetResumeLockState();
+  setStatus("");
+  log(`resume unlock OK → ${target}`);
+
+  if (target === "chat" && dialogId) {
+    currentDialogId = dialogId;
+    currentPeerUsername = peer;
+    const titleEl = document.getElementById("chat-title");
+    if (titleEl) titleEl.textContent = peer || "Чат";
+    showScreen("chat");
+    flushPendingMarkRead();
+    return;
+  }
+  if (target === "new-chat") {
+    showNewChatScreen();
+    return;
+  }
+  await loadHome();
+}
+
+async function onAppVisible(): Promise<void> {
+  if (appLocked) {
+    // Уже на unlock — не flush mark_read, не показываем chat/home
+    return;
+  }
+
+  const hiddenFor = hiddenAt !== null ? Date.now() - hiddenAt : 0;
+  hiddenAt = null;
+
+  if (hiddenFor >= PIN_LOCK_GRACE_MS) {
+    await lockAppForResume();
+    if (appLocked) return;
+  }
+
+  if (currentDialogId) {
+    flushPendingMarkRead();
   }
 }
 
@@ -596,6 +695,65 @@ function showNewChatScreen(): void {
   input.value = "";
   el("search-results").innerHTML = "";
   input.focus();
+}
+
+// --- Settings: Change PIN ---
+
+function showChangePinScreen(): void {
+  showScreen("change-pin");
+  setStatus("");
+  for (const id of ["change-pin-old", "change-pin-new", "change-pin-confirm"]) {
+    el<HTMLInputElement>(id).value = "";
+  }
+  el<HTMLInputElement>("change-pin-old").focus();
+}
+
+async function handleChangePin(): Promise<void> {
+  const oldPin = digitsOnly(el<HTMLInputElement>("change-pin-old").value);
+  const newPin = digitsOnly(el<HTMLInputElement>("change-pin-new").value);
+  const confirm = digitsOnly(el<HTMLInputElement>("change-pin-confirm").value);
+
+  if (!isValidPinFormat(oldPin)) {
+    setStatus(`Текущий PIN: ${PIN_LENGTH} цифры`, true);
+    return;
+  }
+  if (!isValidPinFormat(newPin)) {
+    setStatus(`Новый PIN должен состоять из ${PIN_LENGTH} цифр`, true);
+    return;
+  }
+  if (newPin !== confirm) {
+    setStatus("Новый PIN не совпадает", true);
+    return;
+  }
+  if (oldPin === newPin) {
+    setStatus("Новый PIN совпадает со старым", true);
+    return;
+  }
+
+  setStatus("Смена PIN...");
+  log("change PIN...");
+  try {
+    const storedRefresh = await getRefreshTokenRaw();
+    const result = await changePin(oldPin, newPin, storedRefresh);
+    if (!result.ok) {
+      if (result.reason === "invalid_old") {
+        setStatus("Неверный текущий PIN", true);
+      } else {
+        setStatus(`Новый PIN должен состоять из ${PIN_LENGTH} цифр`, true);
+      }
+      return;
+    }
+    if (result.refreshBlob) {
+      await setRefreshToken(result.refreshBlob);
+      log("refresh перешифрован новым PIN");
+    }
+    setStatus("PIN обновлён");
+    log("change PIN OK → Home");
+    await loadHome();
+  } catch (err) {
+    setStatus(String(err), true);
+    log(`ERR change PIN: ${String(err)}`);
+  }
 }
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -794,6 +952,7 @@ async function handleUnlockPin(): Promise<void> {
       pinFailCount = 0;
       await clearAllTokens();
       await clearPin();
+      resetResumeLockState();
       setStatus("Слишком много попыток. Войдите заново.", true);
       showLoginScreen();
       return;
@@ -802,6 +961,15 @@ async function handleUnlockPin(): Promise<void> {
       `Неверный PIN. Осталось попыток: ${PIN_MAX_ATTEMPTS - pinFailCount}`,
       true
     );
+    return;
+  }
+
+  pinFailCount = 0;
+  pinInput.value = "";
+
+  // Resume lock: JWT уже в памяти — только verify + вернуть экран
+  if (appLocked && screenBeforeLock) {
+    await unlockAfterResume();
     return;
   }
 
@@ -818,7 +986,6 @@ async function handleUnlockPin(): Promise<void> {
     }
     const plain = await decryptRefreshToken(pin, stored);
     await finishUnlockWithPlainRefresh(plain, pin);
-    pinInput.value = "";
   } catch (err) {
     if (await handleUnlockAuthError(err)) return;
     setStatus(String(err), true);
@@ -1083,6 +1250,8 @@ async function handleLogout(): Promise<void> {
   } finally {
     await clearAllTokens();
     await clearPin();
+    resetResumeLockState();
+    pinFailCount = 0;
     log("токены и PIN очищены");
     showLoginScreen();
   }
@@ -1267,9 +1436,26 @@ async function init(): Promise<void> {
 
   // Home screen
   el("btn-logout").addEventListener("click", () => void handleLogout());
+  el("btn-change-pin").addEventListener("click", showChangePinScreen);
   el("btn-refresh-count").addEventListener("click", () => void loadHome());
   el("btn-new-chat").addEventListener("click", showNewChatScreen);
   el("btn-new-chat-empty").addEventListener("click", showNewChatScreen);
+
+  // Change PIN (Settings)
+  bindPinInput("change-pin-old");
+  bindPinInput("change-pin-new");
+  bindPinInput("change-pin-confirm");
+  el("btn-change-pin-save").addEventListener("click", () => void handleChangePin());
+  el("btn-change-pin-back").addEventListener("click", () => void loadHome());
+  el("change-pin-old").addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") el<HTMLInputElement>("change-pin-new").focus();
+  });
+  el("change-pin-new").addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") el<HTMLInputElement>("change-pin-confirm").focus();
+  });
+  el("change-pin-confirm").addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") void handleChangePin();
+  });
 
   // New chat screen
   el("btn-create-dialog").addEventListener("click", () => void handleCreateDialog());
@@ -1286,11 +1472,17 @@ async function init(): Promise<void> {
     if ((e as KeyboardEvent).key === "Enter") void handleSendMessage();
   });
 
-  // При возврате фокуса — дочитываем накопленные непрочитанные сообщения
+  // Background / resume: grace period → PIN lock; иначе flush mark_read
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && currentDialogId) {
-      flushPendingMarkRead();
+    if (document.hidden) {
+      onAppHidden();
+    } else {
+      void onAppVisible();
     }
+  });
+  // Safari / PWA: pagehide как доп. сигнал ухода в background
+  window.addEventListener("pagehide", () => {
+    onAppHidden();
   });
 
   // Кнопки PWA-баннера

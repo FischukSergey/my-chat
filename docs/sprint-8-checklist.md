@@ -62,17 +62,21 @@
 
 ## 5) Клиент — Resume / background lock
 
-- [ ] На `visibilitychange` / hide: учитывать grace period.
-- [ ] После истечения grace при возврате → Unlock PIN (скрыть chat/home content).
-- [ ] Пока locked: не flush mark_read / не светить переписку.
+- [x] На `visibilitychange` / hide: учитывать grace period.
+- [x] После истечения grace при возврате → Unlock PIN (скрыть chat/home content).
+- [x] Пока locked: не flush mark_read / не светить переписку.
+
+Примечание: `PIN_LOCK_GRACE_MS=60s`; hide → `hiddenAt`; resume > grace → `appLocked` + unlock PIN (chat/home через `display:none`); успех resume = verify PIN → restore screen без обязательного refresh; `tryMarkRead`/`flushPendingMarkRead` no-op при `appLocked`.
 
 ---
 
 ## 6) Клиент — Settings и native
 
-- [ ] Смена PIN (старый → новый ×2).
-- [ ] Не ломать Capacitor `startUnlock` + LocalAuthentication.
-- [ ] (Optional) Native тоже может использовать PIN как fallback — не Must.
+- [x] Смена PIN (старый → новый ×2).
+- [x] Не ломать Capacitor `startUnlock` + LocalAuthentication.
+- [x] (Optional) Native тоже может использовать PIN как fallback — не Must.
+
+Примечание: Home → «Сменить PIN» (`#change-pin`); `changePin` + re-encrypt refresh. Native: `startUnlock` (Face ID) без изменений Must; optional fallback PIN если refresh `enc:v1:` (из §4).
 
 ---
 

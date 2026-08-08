@@ -534,7 +534,55 @@
           <button id="btn-new-chat-empty" class="btn-primary" type="button">Новый чат</button>
         </div>
 
+        <button id="btn-change-pin" class="btn-secondary" type="button">Сменить PIN</button>
         <button id="btn-logout" class="btn-danger" type="button">Выйти</button>
+      </div>
+    </div>
+
+    <!-- ===== Change PIN (Settings) ===== -->
+    <div id="change-pin" class="screen">
+      <div class="card">
+        <h1>Сменить PIN</h1>
+        <p class="subtitle">Введите текущий PIN и задайте новый (4 цифры)</p>
+
+        <label for="change-pin-old">Текущий PIN</label>
+        <input
+          id="change-pin-old"
+          class="pin-input"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="4"
+          autocomplete="current-password"
+          placeholder="••••"
+        />
+
+        <label for="change-pin-new">Новый PIN</label>
+        <input
+          id="change-pin-new"
+          class="pin-input"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="4"
+          autocomplete="new-password"
+          placeholder="••••"
+        />
+
+        <label for="change-pin-confirm">Повторите новый PIN</label>
+        <input
+          id="change-pin-confirm"
+          class="pin-input"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="4"
+          autocomplete="new-password"
+          placeholder="••••"
+        />
+
+        <button id="btn-change-pin-save" class="btn-primary" type="button">Сохранить</button>
+        <button id="btn-change-pin-back" class="btn-secondary" type="button">Назад</button>
       </div>
     </div>
 
