@@ -57,6 +57,7 @@
 - [x] Lockout по §1.
 
 Примечание: `startUnlockWithPin` вместо silent refresh; decrypt `enc:v1:` → `apiRefresh` → re-encrypt; 5 fails → clear tokens+PIN → Login; native Face ID сохранён (`startUnlock`), при ciphertext после биометрии — PIN.
+Post-sprint UX (до Sprint 9): кнопка «Разблокировать» убрана; unlock при вводе 4-й цифры (`bindPinInput` + `handleUnlockPin`).
 
 ---
 

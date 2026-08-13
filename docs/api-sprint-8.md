@@ -66,9 +66,11 @@ Should encrypt refresh:
 1. Cold start: есть refresh (или encrypted blob) **и** PIN задан.
 2. Resume: документ был `hidden` дольше grace period (`PIN_LOCK_GRACE_MS`, default **60000**).
 
+**UI:** поле из 4 цифр; verify запускается автоматически при вводе четвёртой цифры. Отдельной кнопки «Разблокировать» нет. Кнопка «Выйти из аккаунта» остаётся. На native в biometric-режиме — «Разблокировать Face ID».
+
 **Успех:** verify PIN → (decrypt refresh если нужно) → `apiRefresh` → Home.
 
-**Неверный PIN:** счётчик попыток; после **5** → `clearAllTokens` + clear PIN keys → Login.
+**Неверный PIN:** поле очищается; счётчик попыток; после **5** → `clearAllTokens` + clear PIN keys → Login.
 
 **Выйти:** clear tokens (+ clear PIN keys — см. plan §3.C).
 
