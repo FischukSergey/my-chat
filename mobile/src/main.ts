@@ -933,63 +933,72 @@ async function startUnlockWithPin(): Promise<void> {
   log("unlock: ожидание PIN");
 }
 
+/** Чтобы input + Enter не запускали verify дважды, пока идёт проверка. */
+let unlockPinBusy = false;
+
 async function handleUnlockPin(): Promise<void> {
+  if (unlockPinBusy) return;
+
   const pinInput = el<HTMLInputElement>("unlock-pin-input");
   const pin = digitsOnly(pinInput.value);
 
   if (!isValidPinFormat(pin)) {
-    setStatus(`PIN должен состоять из ${PIN_LENGTH} цифр`, true);
     return;
   }
 
-  const ok = await verifyPin(pin);
-  if (!ok) {
-    pinFailCount += 1;
-    log(`unlock PIN fail ${pinFailCount}/${PIN_MAX_ATTEMPTS}`);
-    pinInput.value = "";
-    pinInput.focus();
-    if (pinFailCount >= PIN_MAX_ATTEMPTS) {
-      pinFailCount = 0;
-      await clearAllTokens();
-      await clearPin();
-      resetResumeLockState();
-      setStatus("Слишком много попыток. Войдите заново.", true);
-      showLoginScreen();
-      return;
-    }
-    setStatus(
-      `Неверный PIN. Осталось попыток: ${PIN_MAX_ATTEMPTS - pinFailCount}`,
-      true
-    );
-    return;
-  }
-
-  pinFailCount = 0;
-  pinInput.value = "";
-
-  // Resume lock: JWT уже в памяти — только verify + вернуть экран
-  if (appLocked && screenBeforeLock) {
-    await unlockAfterResume();
-    return;
-  }
-
-  setStatus("Обновление сессии...");
-  log("unlock PIN OK → refresh");
+  unlockPinBusy = true;
   try {
-    const stored = await getRefreshTokenRaw();
-    if (!stored) {
-      await clearAllTokens();
-      await clearPin();
-      setStatus("Сессия не найдена. Войдите заново.", true);
-      showLoginScreen();
+    const ok = await verifyPin(pin);
+    if (!ok) {
+      pinFailCount += 1;
+      log(`unlock PIN fail ${pinFailCount}/${PIN_MAX_ATTEMPTS}`);
+      pinInput.value = "";
+      if (pinFailCount >= PIN_MAX_ATTEMPTS) {
+        pinFailCount = 0;
+        await clearAllTokens();
+        await clearPin();
+        resetResumeLockState();
+        setStatus("Слишком много попыток. Войдите заново.", true);
+        showLoginScreen();
+        return;
+      }
+      setStatus(
+        `Неверный PIN. Осталось попыток: ${PIN_MAX_ATTEMPTS - pinFailCount}`,
+        true
+      );
+      pinInput.focus();
       return;
     }
-    const plain = await decryptRefreshToken(pin, stored);
-    await finishUnlockWithPlainRefresh(plain, pin);
-  } catch (err) {
-    if (await handleUnlockAuthError(err)) return;
-    setStatus(String(err), true);
-    log(`ERR unlock PIN: ${String(err)}`);
+
+    pinFailCount = 0;
+    pinInput.value = "";
+
+    // Resume lock: JWT уже в памяти — только verify + вернуть экран
+    if (appLocked && screenBeforeLock) {
+      await unlockAfterResume();
+      return;
+    }
+
+    setStatus("Обновление сессии...");
+    log("unlock PIN OK → refresh");
+    try {
+      const stored = await getRefreshTokenRaw();
+      if (!stored) {
+        await clearAllTokens();
+        await clearPin();
+        setStatus("Сессия не найдена. Войдите заново.", true);
+        showLoginScreen();
+        return;
+      }
+      const plain = await decryptRefreshToken(pin, stored);
+      await finishUnlockWithPlainRefresh(plain, pin);
+    } catch (err) {
+      if (await handleUnlockAuthError(err)) return;
+      setStatus(String(err), true);
+      log(`ERR unlock PIN: ${String(err)}`);
+    }
+  } finally {
+    unlockPinBusy = false;
   }
 }
 
@@ -1065,11 +1074,12 @@ function digitsOnly(value: string): string {
   return value.replace(/\D/g, "").slice(0, PIN_LENGTH);
 }
 
-function bindPinInput(id: string): void {
+function bindPinInput(id: string, onComplete?: () => void): void {
   const input = el<HTMLInputElement>(id);
   input.addEventListener("input", () => {
     const next = digitsOnly(input.value);
     if (input.value !== next) input.value = next;
+    if (onComplete && next.length === PIN_LENGTH) onComplete();
   });
 }
 
@@ -1425,9 +1435,8 @@ async function init(): Promise<void> {
     if ((e as KeyboardEvent).key === "Enter") void handleSetupPin();
   });
 
-  // Unlock screen
-  bindPinInput("unlock-pin-input");
-  el("btn-unlock-pin").addEventListener("click", () => void handleUnlockPin());
+  // Unlock screen: разблокировка при вводе 4-й цифры (без кнопки)
+  bindPinInput("unlock-pin-input", () => void handleUnlockPin());
   el("unlock-pin-input").addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Enter") void handleUnlockPin();
   });

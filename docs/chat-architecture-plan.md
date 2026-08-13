@@ -303,7 +303,7 @@ PWA на Home Screen, Web Push (VAPID), badge + `badge_sync`, device binding, lo
 Детали: `docs/sprint-7-plan.md`, `docs/sprint-7-checklist.md`, `docs/api-sprint-7.md`.
 
 ### Sprint 8 — DONE (PWA unlock / PIN + UX)
-Локальный PIN (4 цифры) после register/login; cold start + resume (grace 60s); refresh encrypted (`enc:v1:` PBKDF2+AES-GCM); push title = username отправителя; фон чата бирюза + watermark. Без Redis/PIN API. WebAuthn — later (8.1+). Capacitor Face ID сохранён. Known limitations: `docs/known-limitations-sprint-8.md`.
+Локальный PIN (4 цифры) после register/login; cold start + resume (grace 60s); unlock в PWA по вводу 4-й цифры (без кнопки «Разблокировать»); refresh encrypted (`enc:v1:` PBKDF2+AES-GCM); push title = username отправителя; фон чата бирюза + watermark. Без Redis/PIN API. WebAuthn — later (8.1+). Capacitor Face ID сохранён. Known limitations: `docs/known-limitations-sprint-8.md`.
 
 Детали: `docs/sprint-8-plan.md`, `docs/sprint-8-checklist.md`, `docs/api-sprint-8.md`.
 

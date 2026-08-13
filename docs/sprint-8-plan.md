@@ -71,7 +71,7 @@
 ### D. Клиент PWA — экраны и flow
 
 1. **Setup PIN** — новый экран после успешного register/login при отсутствии PIN.
-2. **Unlock PIN** — заменить бессмысленный auto-`startUnlockNoBiometric` на реальный ввод PIN; кнопка «Выйти из аккаунта» сохраняется.
+2. **Unlock PIN** — заменить бессмысленный auto-`startUnlockNoBiometric` на реальный ввод PIN; кнопка «Выйти из аккаунта» сохраняется. Post-sprint: отдельной кнопки «Разблокировать» нет — verify при вводе 4-й цифры.
 3. **Grace period** при `visibilitychange` / `pagehide`:
    - уход в hidden → запомнить `locked_at` / стартовать таймер;
    - возврат: если hidden дольше **T** (рекомендация **60s**, конфиг константой) → `showScreen("unlock")` и не показывать Home/Chat до PIN;
