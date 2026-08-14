@@ -102,6 +102,7 @@ cold start:
 
 background:
   → hidden longer than grace → next focus: Unlock PIN
+  → visible / PIN unlock / WS reconnect: reload chat history (TTL stale UI)
 
 logout:
   → clear tokens + clear PIN keys → Login

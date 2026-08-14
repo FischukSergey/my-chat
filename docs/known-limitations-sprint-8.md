@@ -55,3 +55,4 @@
 - Redis / серверная проверка PIN.
 - E2EE / at-rest тел сообщений → Sprint 9.
 - Полный редизайн Home / системная строка «from MyChat» в push.
+- Pull-to-refresh ленты чата (системный жест iOS в standalone PWA не работает; кастомный жест не делали — resume/WS reload закрывает stale TTL).

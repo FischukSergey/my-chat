@@ -220,7 +220,7 @@ Unread badge считается запросами по receipts/messages — о
 1. TTL задаётся глобально: `chat.message_ttl_seconds` (**0 = выкл**). Prod: **60s**; local example: **300s**.
 2. Семантика: таймер стартует **после первого `mark_read`**, не при создании (`expires_at = read_at + ttl`); событие `message_ttl_started`.
 3. `message-expirer` (тикер ~10s, batch 100): soft-delete + `message_deleted` через `ws_event_outbox`.
-4. Клиенты удаляют сообщение с экрана; reconnect не возвращает удалённые из истории.
+4. Клиенты удаляют сообщение с экрана (локально по `expires_at` и по `message_deleted`); reconnect / resume PWA перечитывают историю (`loadChatHistory`) — soft-delete не возвращает истёкшие. Pull-to-refresh в ленте нет (standalone PWA не даёт системный жест).
 
 ---
 
