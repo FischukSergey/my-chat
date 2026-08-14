@@ -190,6 +190,10 @@ function connectWS(token: string): void {
       clearTimeout(wsReconnectTimer);
       wsReconnectTimer = null;
     }
+    // Пропущенные message_deleted / ttl_started за время разрыва — reload ленты.
+    if (currentDialogId && !appLocked && !document.hidden) {
+      void loadChatHistory();
+    }
   });
 
   ws.addEventListener("message", (ev) => {
@@ -323,9 +327,9 @@ function handleWSMessage(raw: string): void {
     }
     case "message_deleted": {
       const d = env.data as WSDataMessageDeleted;
-      stopTTLTimer(d.message_id);
       const bubbleEl = document.querySelector<HTMLElement>(`[data-msg-id="${d.message_id}"]`);
-      if (bubbleEl) bubbleEl.style.display = "none";
+      if (bubbleEl) hideExpiredBubble(d.message_id, bubbleEl);
+      else stopTTLTimer(d.message_id);
       // Preview в списке мог ссылаться на удалённое — подтянуть актуальное.
       if (!currentDialogId || d.dialog_id !== currentDialogId) {
         scheduleHomeRefresh();
@@ -348,10 +352,14 @@ function handleWSMessage(raw: string): void {
 
 const ttlTimers = new Map<string, ReturnType<typeof setInterval>>();
 
+function hideExpiredBubble(messageId: string, bubbleEl: HTMLElement): void {
+  stopTTLTimer(messageId);
+  bubbleEl.style.display = "none";
+}
+
 /**
- * Запускает визуальный обратный отсчёт внутри bubble.
- * Не скрывает bubble самостоятельно — скрытие происходит только по событию message_deleted
- * от сервера (server-driven deletion).
+ * Визуальный обратный отсчёт. По истечении expires_at пузырь скрывается локально
+ * (не ждём message_deleted — событие теряется, если PWA была в фоне).
  */
 function startTTLTimer(messageId: string, expiresAt: string, bubbleEl: HTMLElement): void {
   stopTTLTimer(messageId);
@@ -368,8 +376,7 @@ function startTTLTimer(messageId: string, expiresAt: string, bubbleEl: HTMLEleme
     timerEl.style.display = "";
 
     if (remaining <= 0) {
-      stopTTLTimer(messageId);
-      // Ждём message_deleted от сервера — не скрываем здесь.
+      hideExpiredBubble(messageId, bubbleEl);
     }
   };
 
@@ -482,6 +489,7 @@ async function unlockAfterResume(): Promise<void> {
     const titleEl = document.getElementById("chat-title");
     if (titleEl) titleEl.textContent = peer || "Чат";
     showScreen("chat");
+    await loadChatHistory();
     flushPendingMarkRead();
     return;
   }
@@ -507,7 +515,12 @@ async function onAppVisible(): Promise<void> {
   }
 
   if (currentDialogId) {
+    await loadChatHistory();
     flushPendingMarkRead();
+    return;
+  }
+  if (getActiveScreen() === "home") {
+    await refreshHomeData();
   }
 }
 
@@ -587,16 +600,25 @@ async function showChat(dialogId: string, peerUsername?: string): Promise<void> 
     titleEl.textContent = currentPeerUsername || "Чат";
   }
 
-  stopAllTTLTimers();
-  el("messages-list").innerHTML = "";
-
   showScreen("chat");
   await loadChatHistory();
 }
 
+/** Отбрасывает устаревший ответ, если за время GET открыли другой чат / начали новый reload. */
+let chatHistoryGen = 0;
+
 async function loadChatHistory(): Promise<void> {
+  if (!currentDialogId) return;
+  const dialogId = currentDialogId;
+  const gen = ++chatHistoryGen;
+
+  stopAllTTLTimers();
+  el("messages-list").innerHTML = "";
+
   try {
-    const messages = await getMessages(currentDialogId);
+    const messages = await getMessages(dialogId);
+    if (gen !== chatHistoryGen || currentDialogId !== dialogId) return;
+
     messages.reverse(); // API возвращает DESC, рендерим старые→сверху, новые→снизу
     const now = Date.now();
     for (const msg of messages) {

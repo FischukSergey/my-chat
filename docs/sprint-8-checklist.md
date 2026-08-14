@@ -67,7 +67,8 @@ Post-sprint UX (до Sprint 9): кнопка «Разблокировать» у
 - [x] После истечения grace при возврате → Unlock PIN (скрыть chat/home content).
 - [x] Пока locked: не flush mark_read / не светить переписку.
 
-Примечание: `PIN_LOCK_GRACE_MS=60s`; hide → `hiddenAt`; resume > grace → `appLocked` + unlock PIN (chat/home через `display:none`); успех resume = verify PIN → restore screen без обязательного refresh; `tryMarkRead`/`flushPendingMarkRead` no-op при `appLocked`.
+Примечание: `PIN_LOCK_GRACE_MS=60s`; hide → `hiddenAt`; resume > grace → `appLocked` + unlock PIN (chat/home через `display:none`); успех resume = verify PIN → restore screen + `loadChatHistory` / `refreshHomeData`; `tryMarkRead`/`flushPendingMarkRead` no-op при `appLocked`.
+Post-sprint: истёкшие пузыри скрываются локально по `expires_at`; reload ленты на resume и WS reconnect (пропущенный `message_deleted` в фоне PWA).
 
 ---
 

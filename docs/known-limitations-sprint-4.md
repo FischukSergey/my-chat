@@ -55,6 +55,8 @@
 
 **Решение:** При reconnect добавить пересчёт unread-badge через `GET /api/v1/unread` (Sprint 5+).
 
+**Смягчено (2026-08-14):** PWA при resume и WS reconnect перечитывает историю чата (`loadChatHistory`) и список на Home; истёкшие пузыри скрываются локально по `expires_at`, не только по `message_deleted`. Badge по-прежнему зависит от `GET unread` / `badge_updated`.
+
 ---
 
 ### 5. WS reconnect не запрашивает пропущенные события
@@ -66,6 +68,8 @@
 клиент не узнает о них без обновления страницы.
 
 **Решение:** При reconnect выполнять полный reload истории диалога (текущий подход — частичная компенсация). Полноценный event log — Sprint 6+.
+
+**Смягчено (2026-08-14):** клиент делает полный reload ленты на WS `open` (если чат открыт и UI не locked) и на `visibilitychange` / PIN-unlock. Event log по-прежнему нет.
 
 ---
 
