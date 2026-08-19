@@ -10,6 +10,21 @@ import { Preferences } from "@capacitor/preferences";
 export const PIN_LENGTH = 4;
 export const PIN_MAX_ATTEMPTS = 5;
 export const PIN_LOCK_GRACE_MS = 60_000;
+
+/** PIN в памяти только пока UI разблокирован (для refresh без Face ID в PWA). */
+let sessionPin: string | null = null;
+
+export function setSessionPin(pin: string): void {
+  sessionPin = pin;
+}
+
+export function clearSessionPin(): void {
+  sessionPin = null;
+}
+
+export function getSessionPin(): string | null {
+  return sessionPin;
+}
 export const PBKDF2_ITERATIONS = 100_000;
 
 const KEY_PIN_SALT = "my_chat_pin_salt";
@@ -221,6 +236,7 @@ export async function changePin(
 }
 
 export async function clearPin(): Promise<void> {
+  clearSessionPin();
   await Promise.all([
     Preferences.remove({ key: KEY_PIN_SALT }),
     Preferences.remove({ key: KEY_PIN_HASH }),

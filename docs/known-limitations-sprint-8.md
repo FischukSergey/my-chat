@@ -43,6 +43,14 @@
 
 ---
 
+## 4a. 401 refresh в PWA больше не зовёт Face ID
+
+**Было:** `fetchAuth` при протухшем access всегда вызывал `getRefreshToken()` → `BiometricAuth.authenticate()`. В PWA плагин отвечает `BiometryError: User cancelled`; параллельно WS после простоя рвался и переподключался со старым JWT.
+
+**Сейчас:** session PIN после успешного unlock; `rotateSession` / `ensureFreshAccess` расшифровывают `enc:v1:` без биометрии; если PIN нет — снова экран Unlock, не Face ID. Native + plaintext refresh по-прежнему через биометрию.
+
+---
+
 ## 5. Забыли PIN
 
 **Поведение:** logout (wipe tokens + PIN verifier) → login паролем → Setup PIN заново. Отдельного recovery через email/SMS нет (out of scope).

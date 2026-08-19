@@ -3,7 +3,7 @@
  *
  * Все запросы к main-service идут через fetchAuth() который:
  *   1. Добавляет Authorization + X-Device-ID заголовки.
- *   2. При 401 — пробует refresh (с биометрией).
+ *   2. При 401 — rotateSession (PIN в памяти / plaintext / биометрия на native).
  *   3. Повторяет запрос с новым access токеном.
  *   4. При session_compromised — wipe tokens + бросает SessionCompromisedError.
  */
@@ -12,8 +12,17 @@ import {
   clearAllTokens,
   getAccessToken,
   getRefreshToken,
+  getRefreshTokenRaw,
+  isBiometricAvailable,
   saveTokens,
+  setRefreshToken,
 } from "./auth";
+import {
+  decryptRefreshToken,
+  encryptRefreshToken,
+  getSessionPin,
+  isEncryptedRefresh,
+} from "./pin";
 
 // URL бэкенда берётся из Vite env-переменных:
 //   .env.development  → пустые строки → relative URLs → Vite proxy
@@ -76,6 +85,109 @@ export class SessionRevokedError extends Error {
     super("session_revoked");
     this.name = "SessionRevokedError";
   }
+}
+
+/** Refresh зашифрован PIN, а session PIN в памяти нет — нужен экран Unlock. */
+export class PinRequiredError extends Error {
+  constructor() {
+    super("pin_required");
+    this.name = "PinRequiredError";
+  }
+}
+
+let onPinRequired: (() => void) | null = null;
+
+/** UI: показать Unlock PIN (PWA), не звать Face ID. */
+export function setOnPinRequired(handler: () => void): void {
+  onPinRequired = handler;
+}
+
+function notifyPinRequired(): void {
+  onPinRequired?.();
+}
+
+function jwtAccessExpired(token: string, skewMs = 30_000): boolean {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2 || !parts[1]) return true;
+    const json = atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"));
+    const exp = (JSON.parse(json) as { exp?: number }).exp;
+    return typeof exp !== "number" || exp * 1000 < Date.now() + skewMs;
+  } catch {
+    return true;
+  }
+}
+
+let rotateInFlight: Promise<TokenPair> | null = null;
+
+/**
+ * Ротация refresh → новые access/refresh.
+ * PWA: decrypt enc:v1: через session PIN (без Capacitor Face ID).
+ * Native + plaintext refresh: по-прежнему биометрия.
+ */
+export async function rotateSession(): Promise<TokenPair> {
+  if (rotateInFlight) return rotateInFlight;
+  rotateInFlight = rotateSessionInner().finally(() => {
+    rotateInFlight = null;
+  });
+  return rotateInFlight;
+}
+
+async function rotateSessionInner(): Promise<TokenPair> {
+  const raw = await getRefreshTokenRaw();
+  if (!raw) throw new SessionRevokedError();
+
+  let plain: string;
+  const pin = getSessionPin();
+
+  if (isEncryptedRefresh(raw)) {
+    if (!pin) {
+      notifyPinRequired();
+      throw new PinRequiredError();
+    }
+    plain = await decryptRefreshToken(pin, raw);
+  } else if (await isBiometricAvailable()) {
+    const gated = await getRefreshToken("Подтвердите личность для обновления сессии");
+    if (!gated) throw new SessionRevokedError();
+    plain = gated;
+  } else {
+    plain = raw;
+  }
+
+  let newPair: TokenPair;
+  try {
+    newPair = await apiRefresh(plain);
+  } catch (err) {
+    if (
+      err instanceof SessionCompromisedError ||
+      err instanceof SessionExpiredError ||
+      err instanceof SessionRevokedError
+    ) {
+      await clearAllTokens();
+      throw err;
+    }
+    throw err;
+  }
+
+  await saveTokens({
+    accessToken: newPair.access_token,
+    refreshToken: newPair.refresh_token,
+    sessionId: newPair.session_id,
+  });
+  if (pin) {
+    const blob = await encryptRefreshToken(pin, newPair.refresh_token);
+    await setRefreshToken(blob);
+  }
+  return newPair;
+}
+
+/** Access из storage или rotate, если JWT протух. */
+export async function ensureFreshAccess(): Promise<string | null> {
+  const access = await getAccessToken();
+  if (access && !jwtAccessExpired(access)) return access;
+  if (!(await getRefreshTokenRaw())) return access;
+  const pair = await rotateSession();
+  return pair.access_token;
 }
 
 // --- Типы ---
@@ -193,32 +305,8 @@ export async function fetchAuth(
   let res = await fetch(`${apiUrl()}${path}`, { ...opts, headers });
 
   if (res.status === 401) {
-    // Пробуем refresh (требует биометрию)
-    const rt = await getRefreshToken("Подтвердите личность для обновления сессии");
-    if (!rt) throw new SessionRevokedError();
-
-    let newPair: TokenPair;
-    try {
-      newPair = await apiRefresh(rt);
-    } catch (err) {
-      if (
-        err instanceof SessionCompromisedError ||
-        err instanceof SessionExpiredError ||
-        err instanceof SessionRevokedError
-      ) {
-        await clearAllTokens();
-        throw err;
-      }
-      throw err;
-    }
-
-    await saveTokens({
-      accessToken: newPair.access_token,
-      refreshToken: newPair.refresh_token,
-      sessionId: newPair.session_id,
-    });
-
-    headers["Authorization"] = `Bearer ${newPair.access_token}`;
+    const pair = await rotateSession();
+    headers["Authorization"] = `Bearer ${pair.access_token}`;
     res = await fetch(`${apiUrl()}${path}`, { ...opts, headers });
   }
 
