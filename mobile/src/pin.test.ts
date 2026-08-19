@@ -33,10 +33,14 @@ import {
   setupPin,
   verifyPin,
   wrapEncryptedRefresh,
+  setSessionPin,
+  getSessionPin,
+  clearSessionPin,
 } from "./pin";
 
 beforeEach(() => {
   store.clear();
+  clearSessionPin();
 });
 
 describe("isValidPinFormat", () => {
@@ -144,5 +148,21 @@ describe("encryptRefreshToken helpers", () => {
   it("wrapEncryptedRefresh marks ciphertext", () => {
     expect(isEncryptedRefresh(wrapEncryptedRefresh("abc"))).toBe(true);
     expect(isEncryptedRefresh("abc")).toBe(false);
+  });
+});
+
+describe("session PIN (in-memory)", () => {
+  it("set/get/clear", () => {
+    expect(getSessionPin()).toBeNull();
+    setSessionPin("1234");
+    expect(getSessionPin()).toBe("1234");
+    clearSessionPin();
+    expect(getSessionPin()).toBeNull();
+  });
+
+  it("clearPin also clears session PIN", async () => {
+    setSessionPin("1234");
+    await clearPin();
+    expect(getSessionPin()).toBeNull();
   });
 });

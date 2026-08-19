@@ -16,7 +16,6 @@
 import {
   BiometryErrorType,
   clearAllTokens,
-  getAccessToken,
   getRefreshTokenRaw,
   getSavedUserId,
   hasRefreshToken,
@@ -41,9 +40,13 @@ import {
   searchUsers,
   sendMessage,
   ApiError,
+  PinRequiredError,
   SessionCompromisedError,
   SessionExpiredError,
   SessionRevokedError,
+  ensureFreshAccess,
+  rotateSession,
+  setOnPinRequired,
   type DialogListItem,
   type Message,
 } from "./api";
@@ -53,11 +56,12 @@ import {
   PIN_MAX_ATTEMPTS,
   changePin,
   clearPin,
-  decryptRefreshToken,
+  clearSessionPin,
   encryptRefreshToken,
   isEncryptedRefresh,
   isPinSet,
   isValidPinFormat,
+  setSessionPin,
   setupPin,
   verifyPin,
 } from "./pin";
@@ -211,8 +215,16 @@ function connectWS(token: string): void {
 }
 
 async function doReconnectWS(): Promise<void> {
-  const token = await getAccessToken();
-  if (token) connectWS(token);
+  try {
+    const token = await ensureFreshAccess();
+    if (token) connectWS(token);
+  } catch (err) {
+    if (err instanceof PinRequiredError) {
+      log("WS reconnect: ждём PIN");
+      return;
+    }
+    log(`ERR WS reconnect: ${String(err)}`);
+  }
 }
 
 function disconnectWS(): void {
@@ -282,6 +294,7 @@ async function refreshHomeData(): Promise<void> {
     renderDialogsList(dialogs);
     log(`WS refresh home: dialogs=${dialogs.length}, unread=${count}`);
   } catch (err) {
+    if (err instanceof PinRequiredError) return;
     log(`ERR refreshHomeData: ${String(err)}`);
   }
 }
@@ -472,6 +485,7 @@ async function lockAppForResume(): Promise<void> {
   peerBeforeLock = currentPeerUsername;
   appLocked = true;
   log(`resume lock (grace ${PIN_LOCK_GRACE_MS}ms exceeded)`);
+  clearSessionPin();
   await startUnlockWithPin();
 }
 
@@ -637,6 +651,7 @@ async function loadChatHistory(): Promise<void> {
     }
     scrollToBottom();
   } catch (err) {
+    if (err instanceof PinRequiredError) return;
     log(`ERR loadChatHistory: ${String(err)}`);
   }
 }
@@ -654,6 +669,7 @@ async function handleSendMessage(): Promise<void> {
     log(`sendMessage OK: ${msg.id}`);
   } catch (err) {
     input.value = body;
+    if (err instanceof PinRequiredError) return;
     log(`ERR sendMessage: ${String(err)}`);
   }
 }
@@ -769,6 +785,7 @@ async function handleChangePin(): Promise<void> {
       await setRefreshToken(result.refreshBlob);
       log("refresh перешифрован новым PIN");
     }
+    setSessionPin(newPin);
     setStatus("PIN обновлён");
     log("change PIN OK → Home");
     await loadHome();
@@ -807,6 +824,7 @@ async function runUserSearch(): Promise<void> {
       resultsEl.appendChild(li);
     }
   } catch (err) {
+    if (err instanceof PinRequiredError) return;
     log(`ERR searchUsers: ${String(err)}`);
   }
 }
@@ -826,6 +844,7 @@ async function handleCreateDialog(): Promise<void> {
     setStatus("");
     await showChat(item.dialog_id, item.peer.username);
   } catch (err) {
+    if (err instanceof PinRequiredError) return;
     if (
       err instanceof SessionCompromisedError ||
       err instanceof SessionExpiredError ||
@@ -854,8 +873,14 @@ async function loadHome(): Promise<void> {
   currentUserId = (await getSavedUserId()) ?? "";
 
   // Подключаем WS если ещё не подключены
-  const token = await getAccessToken();
-  if (token) connectWS(token);
+  try {
+    const token = await ensureFreshAccess();
+    if (token) connectWS(token);
+  } catch (err) {
+    if (!(err instanceof PinRequiredError)) {
+      log(`ERR WS connect: ${String(err)}`);
+    }
+  }
 
   // Подписка на Web Push (best-effort, не блокирует загрузку home)
   void subscribePush();
@@ -869,6 +894,7 @@ async function loadHome(): Promise<void> {
     log(`GET /dialogs → ${dialogs.length}; unread → ${count}`);
     await openPendingDialogIfAny();
   } catch (err) {
+    if (err instanceof PinRequiredError) return;
     if (
       err instanceof SessionCompromisedError ||
       err instanceof SessionExpiredError ||
@@ -994,31 +1020,25 @@ async function handleUnlockPin(): Promise<void> {
 
     pinFailCount = 0;
     pinInput.value = "";
+    setSessionPin(pin);
 
-    // Resume lock: JWT уже в памяти — только verify + вернуть экран
+    setStatus("Обновление сессии...");
+    log("unlock PIN OK → refresh");
+    try {
+      await rotateSession();
+    } catch (err) {
+      if (await handleUnlockAuthError(err)) return;
+      setStatus(String(err), true);
+      log(`ERR unlock PIN: ${String(err)}`);
+      return;
+    }
+
     if (appLocked && screenBeforeLock) {
       await unlockAfterResume();
       return;
     }
 
-    setStatus("Обновление сессии...");
-    log("unlock PIN OK → refresh");
-    try {
-      const stored = await getRefreshTokenRaw();
-      if (!stored) {
-        await clearAllTokens();
-        await clearPin();
-        setStatus("Сессия не найдена. Войдите заново.", true);
-        showLoginScreen();
-        return;
-      }
-      const plain = await decryptRefreshToken(pin, stored);
-      await finishUnlockWithPlainRefresh(plain, pin);
-    } catch (err) {
-      if (await handleUnlockAuthError(err)) return;
-      setStatus(String(err), true);
-      log(`ERR unlock PIN: ${String(err)}`);
-    }
+    await loadHome();
   } finally {
     unlockPinBusy = false;
   }
@@ -1155,6 +1175,7 @@ async function handleSetupPin(): Promise<void> {
 
     pinInput.value = "";
     confirmInput.value = "";
+    setSessionPin(pin);
     setStatus("");
     log("setup PIN OK → Home");
     await loadHome();
@@ -1168,6 +1189,7 @@ async function handleSetupPin(): Promise<void> {
 
 function showLoginScreen(): void {
   disconnectWS();
+  clearSessionPin();
   showScreen("login");
   setStatus("");
   // Восстановить последний username
@@ -1351,6 +1373,7 @@ async function subscribePush(): Promise<void> {
     await registerDevice("web", sub.toJSON());
     log("Push: подписка успешна");
   } catch (err) {
+    if (err instanceof PinRequiredError) return;
     log(`Push: ошибка подписки — ${String(err)}`);
   }
 }
@@ -1518,6 +1541,13 @@ async function init(): Promise<void> {
 
   // Кнопки PWA-баннера
   initInstallBannerButtons();
+
+  setOnPinRequired(() => {
+    if (appLocked) return;
+    if (getActiveScreen() === "unlock") return;
+    log("API: нужен PIN для refresh");
+    void startUnlockWithPin();
+  });
 
   // Deep link /?dialog= (SW notificationclick / openWindow)
   takePendingDialogFromUrl();
