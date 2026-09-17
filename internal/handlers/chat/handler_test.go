@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"my-chat/internal/handlers/chat"
 	"my-chat/internal/middleware"
 	chatservice "my-chat/internal/services/chat"
@@ -33,8 +35,9 @@ type mockChatSvc struct {
 		limit int,
 		before *time.Time,
 	) ([]store.Message, error)
-	markReadFn    func(ctx context.Context, messageID, userID string, readAt time.Time) error
-	unreadCountFn func(ctx context.Context, userID string) (int, error)
+	markReadFn         func(ctx context.Context, messageID, userID string, readAt time.Time) error
+	deleteOwnMessageFn func(ctx context.Context, messageID, userID string) error
+	unreadCountFn      func(ctx context.Context, userID string) (int, error)
 }
 
 func (m *mockChatSvc) SendMessage(ctx context.Context, message store.Message) (store.Message, error) {
@@ -52,6 +55,13 @@ func (m *mockChatSvc) ListMessages(
 
 func (m *mockChatSvc) MarkRead(ctx context.Context, messageID, userID string, readAt time.Time) error {
 	return m.markReadFn(ctx, messageID, userID, readAt)
+}
+
+func (m *mockChatSvc) DeleteOwnMessage(ctx context.Context, messageID, userID string) error {
+	if m.deleteOwnMessageFn == nil {
+		return chatservice.ErrMessageNotFound
+	}
+	return m.deleteOwnMessageFn(ctx, messageID, userID)
 }
 
 func (m *mockChatSvc) UnreadCount(ctx context.Context, userID string) (int, error) {
@@ -341,5 +351,96 @@ func TestCreateDialog_400_EmptyUsername(t *testing.T) {
 	}
 	if code := decodeErrorCode(t, rec.Body); code != "invalid_argument" {
 		t.Errorf("code: want invalid_argument, got %q", code)
+	}
+}
+
+const testMessageID = "44444444-4444-4444-4444-444444444444"
+
+func deleteMessageRouter(h *chat.Handler) http.Handler {
+	r := chi.NewRouter()
+	r.Delete("/api/v1/messages/{id}", h.DeleteMessage)
+	return r
+}
+
+func TestDeleteMessage_204(t *testing.T) {
+	t.Parallel()
+
+	var gotID, gotUser string
+	svc := &mockChatSvc{
+		deleteOwnMessageFn: func(_ context.Context, messageID, userID string) error {
+			gotID, gotUser = messageID, userID
+			return nil
+		},
+	}
+
+	req := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodDelete,
+		"/api/v1/messages/"+testMessageID,
+		nil,
+	)
+	req = withUser(req)
+	rec := httptest.NewRecorder()
+	deleteMessageRouter(chat.New(svc)).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status: want 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if gotID != testMessageID || gotUser != testUserID {
+		t.Errorf("svc args: id=%q user=%q", gotID, gotUser)
+	}
+}
+
+func TestDeleteMessage_403(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockChatSvc{
+		deleteOwnMessageFn: func(_ context.Context, _, _ string) error {
+			return chatservice.ErrForbiddenMessageDelete
+		},
+	}
+
+	req := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodDelete,
+		"/api/v1/messages/"+testMessageID,
+		nil,
+	)
+	req = withUser(req)
+	rec := httptest.NewRecorder()
+	deleteMessageRouter(chat.New(svc)).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status: want 403, got %d", rec.Code)
+	}
+	if code := decodeErrorCode(t, rec.Body); code != "forbidden" {
+		t.Errorf("code: want forbidden, got %q", code)
+	}
+}
+
+func TestDeleteMessage_404(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockChatSvc{
+		deleteOwnMessageFn: func(_ context.Context, _, _ string) error {
+			return chatservice.ErrMessageNotFound
+		},
+	}
+
+	req := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodDelete,
+		"/api/v1/messages/"+testMessageID,
+		nil,
+	)
+	req = withUser(req)
+	rec := httptest.NewRecorder()
+	deleteMessageRouter(chat.New(svc)).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: want 404, got %d", rec.Code)
+	}
+	if code := decodeErrorCode(t, rec.Body); code != "not_found" {
+		t.Errorf("code: want not_found, got %q", code)
 	}
 }

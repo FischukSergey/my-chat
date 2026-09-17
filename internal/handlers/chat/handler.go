@@ -22,6 +22,7 @@ type chatService interface {
 	SendMessage(ctx context.Context, message store.Message) (store.Message, error)
 	ListMessages(ctx context.Context, userID, dialogID string, limit int, before *time.Time) ([]store.Message, error)
 	MarkRead(ctx context.Context, messageID, userID string, readAt time.Time) error
+	DeleteOwnMessage(ctx context.Context, messageID, userID string) error
 	UnreadCount(ctx context.Context, userID string) (int, error)
 	ListDialogs(ctx context.Context, userID string) ([]chatservice.DialogItem, error)
 	CreateDialogByUsername(ctx context.Context, userID, username string) (chatservice.DialogItem, error)
@@ -58,7 +59,7 @@ type sendMessageResponse struct {
 
 // SendMessage обрабатывает POST /api/v1/dialogs/{id}/messages.
 func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
-	dialogID, ok := parseUUIDParam(w, r, "id")
+	dialogID, ok := parseUUIDParam(w, r)
 	if !ok {
 		return
 	}
@@ -110,7 +111,7 @@ type listMessagesResponse struct {
 
 // ListMessages обрабатывает GET /api/v1/dialogs/{id}/messages.
 func (h *Handler) ListMessages(w http.ResponseWriter, r *http.Request) {
-	dialogID, ok := parseUUIDParam(w, r, "id")
+	dialogID, ok := parseUUIDParam(w, r)
 	if !ok {
 		return
 	}
@@ -169,7 +170,7 @@ func (h *Handler) ListMessages(w http.ResponseWriter, r *http.Request) {
 
 // MarkRead обрабатывает POST /api/v1/messages/{id}/read.
 func (h *Handler) MarkRead(w http.ResponseWriter, r *http.Request) {
-	messageID, ok := parseUUIDParam(w, r, "id")
+	messageID, ok := parseUUIDParam(w, r)
 	if !ok {
 		return
 	}
@@ -182,6 +183,35 @@ func (h *Handler) MarkRead(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.svc.MarkRead(r.Context(), messageID, userID, time.Now().UTC()); err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", "failed to mark message as read")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteMessage обрабатывает DELETE /api/v1/messages/{id}.
+func (h *Handler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
+	messageID, ok := parseUUIDParam(w, r)
+	if !ok {
+		return
+	}
+
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
+		respondError(w, http.StatusUnauthorized, "unauthenticated", "missing user id")
+		return
+	}
+
+	if err := h.svc.DeleteOwnMessage(r.Context(), messageID, userID); err != nil {
+		if errors.Is(err, chatservice.ErrMessageNotFound) {
+			respondError(w, http.StatusNotFound, "not_found", "message not found")
+			return
+		}
+		if errors.Is(err, chatservice.ErrForbiddenMessageDelete) || errors.Is(err, chatservice.ErrForbiddenDialogAccess) {
+			respondError(w, http.StatusForbidden, "forbidden", "you cannot delete this message")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "internal", "failed to delete message")
 		return
 	}
 
@@ -213,10 +243,10 @@ func (h *Handler) UnreadCount(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ---
 
-func parseUUIDParam(w http.ResponseWriter, r *http.Request, param string) (string, bool) {
-	raw := chi.URLParam(r, param)
+func parseUUIDParam(w http.ResponseWriter, r *http.Request) (string, bool) {
+	raw := chi.URLParam(r, "id")
 	if _, err := uuid.Parse(raw); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid_argument", param+" is not a valid UUID")
+		respondError(w, http.StatusBadRequest, "invalid_argument", "id is not a valid UUID")
 		return "", false
 	}
 	return raw, true

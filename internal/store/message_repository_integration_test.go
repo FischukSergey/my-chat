@@ -4,6 +4,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -135,6 +136,47 @@ func TestMessageRepository_ListByDialog_ExcludesDeleted(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("active message %q must appear in ListByDialog", active.ID)
+	}
+}
+
+func TestMessageRepository_SoftDelete_HidesFromListAndGetByID(t *testing.T) {
+	s := setupDB(t)
+	ctx := context.Background()
+	userA := insertUser(t, ctx, s)
+	userB := insertUser(t, ctx, s)
+	dialogID := insertDialog(t, ctx, s, userA, userB)
+	repo := store.NewMessageRepository(s)
+	msg := insertMessage(t, ctx, repo, dialogID, userA, nil)
+
+	ok, err := repo.SoftDelete(ctx, msg.ID)
+	if err != nil {
+		t.Fatalf("SoftDelete: %v", err)
+	}
+	if !ok {
+		t.Fatal("SoftDelete: want true")
+	}
+
+	ok, err = repo.SoftDelete(ctx, msg.ID)
+	if err != nil {
+		t.Fatalf("SoftDelete second: %v", err)
+	}
+	if ok {
+		t.Fatal("SoftDelete second: want false (already deleted)")
+	}
+
+	_, err = repo.GetByID(ctx, msg.ID)
+	if !errors.Is(err, store.ErrMessageNotFound) {
+		t.Fatalf("GetByID after delete: want ErrMessageNotFound, got %v", err)
+	}
+
+	list, err := repo.ListByDialog(ctx, dialogID, 50, nil)
+	if err != nil {
+		t.Fatalf("ListByDialog: %v", err)
+	}
+	for _, m := range list {
+		if m.ID == msg.ID {
+			t.Fatalf("soft-deleted message %q still in ListByDialog", msg.ID)
+		}
 	}
 }
 

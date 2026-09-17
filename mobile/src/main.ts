@@ -30,6 +30,7 @@ import {
   apiRefresh,
   apiRegister,
   createDialog,
+  deleteMessage,
   extractUserIdFromJwt,
   getMessages,
   getUnreadCount,
@@ -343,10 +344,8 @@ function handleWSMessage(raw: string): void {
       const bubbleEl = document.querySelector<HTMLElement>(`[data-msg-id="${d.message_id}"]`);
       if (bubbleEl) hideExpiredBubble(d.message_id, bubbleEl);
       else stopTTLTimer(d.message_id);
-      // Preview в списке мог ссылаться на удалённое — подтянуть актуальное.
-      if (!currentDialogId || d.dialog_id !== currentDialogId) {
-        scheduleHomeRefresh();
-      }
+      // Preview / unread могли ссылаться на удалённое.
+      scheduleHomeRefresh();
       break;
     }
     case "badge_updated": {
@@ -593,10 +592,34 @@ function appendBubble(msg: Message): HTMLElement {
     <div class="bubble-body">${escHtml(msg.body)}</div>
     <div class="bubble-time">${time}</div>
     <div class="ttl-timer" style="display:none"></div>
+    <button class="bubble-delete" type="button">Удалить</button>
   `;
+
+  if (isOutgoing) {
+    const delBtn = bubble.querySelector<HTMLButtonElement>(".bubble-delete");
+    delBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void handleDeleteOwnMessage(msg.id, bubble);
+    });
+  }
 
   listEl.appendChild(bubble);
   return bubble;
+}
+
+async function handleDeleteOwnMessage(messageId: string, bubbleEl: HTMLElement): Promise<void> {
+  if (!confirm("Удалить это сообщение у всех?")) return;
+  try {
+    await deleteMessage(messageId);
+    hideExpiredBubble(messageId, bubbleEl);
+    scheduleHomeRefresh();
+    log(`deleteMessage OK: ${messageId}`);
+  } catch (err) {
+    if (err instanceof PinRequiredError) return;
+    const msg = err instanceof ApiError ? err.message : String(err);
+    setStatus(msg, true);
+    log(`ERR deleteMessage: ${msg}`);
+  }
 }
 
 function scrollToBottom(): void {

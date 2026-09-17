@@ -3,7 +3,7 @@
 Документ — living architecture: цели, принятые решения и фактическое устройство системы.  
 Детальные задачи и DoD — в `docs/sprint-N-plan.md` / `docs/sprint-N-checklist.md`. Контракты API — в `docs/api-sprint-N.md`.
 
-**Статус (2026-08):** спринты **1–8 DONE**. Далее: **9** (at-rest encryption сообщений). Prod: **https://beepru.ru**.
+**Статус (2026-09):** спринты **1–8 DONE**. **9** (at-rest encryption) — PLANNED, отложен. **10** — IN PROGRESS (удаление своего сообщения). Prod: **https://beepru.ru**.
 
 ---
 
@@ -307,10 +307,15 @@ PWA на Home Screen, Web Push (VAPID), badge + `badge_sync`, device binding, lo
 
 Детали: `docs/sprint-8-plan.md`, `docs/sprint-8-checklist.md`, `docs/api-sprint-8.md`.
 
-### Sprint 9 — PLANNED (message encryption at-rest)
-AES-256-GCM envelope (Вариант A): ciphertext в БД, plaintext только в памяти сервиса и у клиента по TLS. Не E2EE. Hard-delete/purge — вне scope.
+### Sprint 9 — PLANNED (message encryption at-rest), отложен
+AES-256-GCM envelope (Вариант A): ciphertext в БД, plaintext только в памяти сервиса и у клиента по TLS. Не E2EE. Hard-delete/purge — вне scope. Не смешивать с Sprint 10.
 
 Детали: `docs/sprint-9-plan.md`, `docs/sprint-9-checklist.md`, `docs/api-sprint-9.md`.
+
+### Sprint 10 — IN PROGRESS (удаление своего сообщения)
+Автор удаляет своё сообщение у обоих (soft-delete `deleted_at` + WS `message_deleted`, как TTL). `DELETE /api/v1/messages/{id}`. Без окна времени, без delete-for-me, без HARD DELETE.
+
+Детали: `docs/sprint-10-plan.md`, `docs/sprint-10-checklist.md`, `docs/api-sprint-10.md`.
 
 ---
 
