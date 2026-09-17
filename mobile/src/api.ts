@@ -469,3 +469,10 @@ export async function sendMessage(dialogId: string, body: string): Promise<Messa
 export async function markRead(messageId: string): Promise<void> {
   await fetchAuth(`/api/v1/messages/${messageId}/read`, { method: "POST" });
 }
+
+/** Soft-delete своего сообщения у обоих участников. */
+export async function deleteMessage(messageId: string): Promise<void> {
+  const res = await fetchAuth(`/api/v1/messages/${messageId}`, { method: "DELETE" });
+  if (res.status === 204) return;
+  throw await readApiError(res, `deleteMessage: ${res.status}`);
+}

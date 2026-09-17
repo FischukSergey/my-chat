@@ -76,7 +76,7 @@
 
 - **E2EE** (клиентские ключи, сервер не читает).
 - Per-dialog / per-user keys.
-- Физический `DELETE` / `pg_cron` purge soft-deleted (отдельный backlog; можно Sprint 10).
+- Физический `DELETE` / `pg_cron` purge soft-deleted (отдельный backlog; не Sprint 10 unsend).
 - Шифрование других PII (username, devices).
 - Transparent disk encryption VPS.
 - Смена клиентского контракта API.

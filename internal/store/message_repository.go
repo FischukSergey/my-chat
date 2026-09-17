@@ -2,9 +2,15 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
+
+// ErrMessageNotFound — нет строки или уже soft-deleted.
+var ErrMessageNotFound = errors.New("message not found")
 
 // MessageRepository работает с таблицей messages.
 type MessageRepository struct {
@@ -62,6 +68,9 @@ WHERE id = $1 AND deleted_at IS NULL`
 		&message.CreatedAt,
 		&message.ExpiresAt,
 	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Message{}, ErrMessageNotFound
+		}
 		return Message{}, fmt.Errorf("get message by id: %w", err)
 	}
 
@@ -138,6 +147,22 @@ WHERE id = $1 AND expires_at IS NULL`
 	}
 
 	return nil
+}
+
+// SoftDelete помечает сообщение deleted_at. Идемпотентен: повторно не трогает уже удалённые.
+// Возвращает true, если строка обновлена.
+func (r *MessageRepository) SoftDelete(ctx context.Context, messageID string) (bool, error) {
+	const query = `
+UPDATE messages
+SET deleted_at = now()
+WHERE id = $1 AND deleted_at IS NULL`
+
+	tag, err := r.poolDB.Exec(ctx, query, messageID)
+	if err != nil {
+		return false, fmt.Errorf("soft-delete message: %w", err)
+	}
+
+	return tag.RowsAffected() > 0, nil
 }
 
 // ExpiredMessage содержит минимальные данные об истёкшем сообщении для broadcast WS-события.

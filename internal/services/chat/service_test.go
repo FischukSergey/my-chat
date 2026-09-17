@@ -84,6 +84,7 @@ type mockMessageRepo struct {
 	getByIDFn      func(ctx context.Context, msgID string) (store.Message, error)
 	listByDialogFn func(ctx context.Context, dialogID string, limit int, before *time.Time) ([]store.Message, error)
 	setExpiresAtFn func(ctx context.Context, messageID string, expiresAt time.Time) error
+	softDeleteFn   func(ctx context.Context, messageID string) (bool, error)
 }
 
 func (m *mockMessageRepo) Create(ctx context.Context, msg store.Message) (store.Message, error) {
@@ -108,6 +109,13 @@ func (m *mockMessageRepo) SetExpiresAt(ctx context.Context, messageID string, ex
 		return m.setExpiresAtFn(ctx, messageID, expiresAt)
 	}
 	return nil
+}
+
+func (m *mockMessageRepo) SoftDelete(ctx context.Context, messageID string) (bool, error) {
+	if m.softDeleteFn == nil {
+		return false, errors.New("SoftDelete not stubbed")
+	}
+	return m.softDeleteFn(ctx, messageID)
 }
 
 type mockReceiptRepo struct {
@@ -1222,5 +1230,99 @@ func TestCreateDialogByUsername_Errors(t *testing.T) {
 	}
 	if _, err := svc.CreateDialogByUsername(context.Background(), userA, blockedUser); !errors.Is(err, chat.ErrDialogUserNotFound) {
 		t.Errorf("blocked: want ErrDialogUserNotFound, got %v", err)
+	}
+}
+
+func TestDeleteOwnMessage_Author_SendsDeletedToBoth(t *testing.T) {
+	t.Parallel()
+
+	var deleted int
+	var events []string
+	svc := chat.NewService(
+		&mockDialogRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Dialog, error) {
+				return store.Dialog{ID: "d1", UserAID: userA, UserBID: userB}, nil
+			},
+		},
+		&mockMessageRepo{
+			getByIDFn: func(_ context.Context, id string) (store.Message, error) {
+				return store.Message{ID: id, DialogID: "d1", SenderID: userA, Body: msgBody}, nil
+			},
+			softDeleteFn: func(_ context.Context, _ string) (bool, error) {
+				deleted++
+				return true, nil
+			},
+		},
+		&mockReceiptRepo{
+			countUnreadFn: func(_ context.Context, _ string) (int, error) { return 0, nil },
+		},
+		&mockNotifier{
+			sendFn: func(_ context.Context, _ string, event hub.Event) bool {
+				events = append(events, event.Event)
+				return true
+			},
+		},
+		noopOutbox(),
+		noTTL,
+	)
+
+	if err := svc.DeleteOwnMessage(context.Background(), msgID1, userA); err != nil {
+		t.Fatalf("DeleteOwnMessage: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("SoftDelete calls: want 1, got %d", deleted)
+	}
+	deletedEvents := 0
+	for _, name := range events {
+		if name == hub.EventMessageDeleted {
+			deletedEvents++
+		}
+	}
+	if deletedEvents < 2 {
+		t.Fatalf("message_deleted events: want >=2, got %d (%v)", deletedEvents, events)
+	}
+}
+
+func TestDeleteOwnMessage_Foreign_Forbidden(t *testing.T) {
+	t.Parallel()
+
+	svc := chat.NewService(
+		&mockDialogRepo{},
+		&mockMessageRepo{
+			getByIDFn: func(_ context.Context, id string) (store.Message, error) {
+				return store.Message{ID: id, DialogID: "d1", SenderID: userA, Body: msgBody}, nil
+			},
+		},
+		&mockReceiptRepo{},
+		noopNotifier(),
+		noopOutbox(),
+		noTTL,
+	)
+
+	err := svc.DeleteOwnMessage(context.Background(), msgID1, userB)
+	if !errors.Is(err, chat.ErrForbiddenMessageDelete) {
+		t.Fatalf("want ErrForbiddenMessageDelete, got %v", err)
+	}
+}
+
+func TestDeleteOwnMessage_Missing(t *testing.T) {
+	t.Parallel()
+
+	svc := chat.NewService(
+		&mockDialogRepo{},
+		&mockMessageRepo{
+			getByIDFn: func(_ context.Context, _ string) (store.Message, error) {
+				return store.Message{}, store.ErrMessageNotFound
+			},
+		},
+		&mockReceiptRepo{},
+		noopNotifier(),
+		noopOutbox(),
+		noTTL,
+	)
+
+	err := svc.DeleteOwnMessage(context.Background(), msgID1, userA)
+	if !errors.Is(err, chat.ErrMessageNotFound) {
+		t.Fatalf("want ErrMessageNotFound, got %v", err)
 	}
 }

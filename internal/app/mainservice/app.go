@@ -135,6 +135,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		r.Post("/api/v1/dialogs/{id}/messages", chatHandler.SendMessage)
 		r.Get("/api/v1/dialogs/{id}/messages", chatHandler.ListMessages)
 		r.Post("/api/v1/messages/{id}/read", chatHandler.MarkRead)
+		r.Delete("/api/v1/messages/{id}", chatHandler.DeleteMessage)
 		r.Get("/api/v1/me/unread-count", chatHandler.UnreadCount)
 	})
 	log.Info("маршруты main-service зарегистрированы")

@@ -21,6 +21,10 @@ var (
 	ErrForbiddenDialogAccess = errors.New("user does not belong to dialog")
 	// ErrInvalidMessageBody возвращается при пустом тексте сообщения.
 	ErrInvalidMessageBody = errors.New("message body is empty")
+	// ErrMessageNotFound — нет сообщения или уже soft-deleted.
+	ErrMessageNotFound = errors.New("message not found")
+	// ErrForbiddenMessageDelete — удаляет не автор.
+	ErrForbiddenMessageDelete = errors.New("only sender can delete message")
 )
 
 const (
@@ -60,6 +64,7 @@ type messageRepository interface {
 	GetByID(ctx context.Context, messageID string) (store.Message, error)
 	ListByDialog(ctx context.Context, dialogID string, limit int, before *time.Time) ([]store.Message, error)
 	SetExpiresAt(ctx context.Context, messageID string, expiresAt time.Time) error
+	SoftDelete(ctx context.Context, messageID string) (bool, error)
 }
 
 type receiptRepository interface {
@@ -279,6 +284,51 @@ func (s *Service) ListMessages(
 	}
 
 	return items, nil
+}
+
+// DeleteOwnMessage мягко удаляет сообщение автора у обоих участников.
+func (s *Service) DeleteOwnMessage(ctx context.Context, messageID, userID string) error {
+	msg, err := s.messages.GetByID(ctx, messageID)
+	if err != nil {
+		if errors.Is(err, store.ErrMessageNotFound) {
+			return ErrMessageNotFound
+		}
+		return fmt.Errorf("get message: %w", err)
+	}
+
+	if msg.SenderID != userID {
+		return ErrForbiddenMessageDelete
+	}
+
+	dialog, err := s.dialogs.GetByID(ctx, msg.DialogID)
+	if err != nil {
+		return fmt.Errorf("get dialog: %w", err)
+	}
+	if _, ok := receiverID(dialog, userID); !ok {
+		return ErrForbiddenDialogAccess
+	}
+
+	ok, err := s.messages.SoftDelete(ctx, messageID)
+	if err != nil {
+		return fmt.Errorf("soft-delete message: %w", err)
+	}
+	if !ok {
+		return ErrMessageNotFound
+	}
+
+	deleted := hub.NewEvent(hub.EventMessageDeleted, map[string]any{
+		keyMessageID: messageID,
+		keyDialogID:  msg.DialogID,
+	})
+	s.notifier.Send(ctx, dialog.UserAID, deleted)
+	s.notifier.Send(ctx, dialog.UserBID, deleted)
+
+	if peer, found := receiverID(dialog, userID); found {
+		s.sendBadgeUpdated(ctx, peer)
+		s.enqueueBadgeSync(ctx, messageID, peer)
+	}
+
+	return nil
 }
 
 // MarkRead отмечает сообщение как прочитанное пользователем.
