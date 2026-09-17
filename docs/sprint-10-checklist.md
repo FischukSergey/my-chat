@@ -8,7 +8,7 @@
 - Sprint 4 TTL/soft-delete и Sprint 7 список чатов работают.
 - Sprint 9 (шифрование) отложен, не смешивать DoD.
 
-**Статус:** IN PROGRESS  
+**Статус:** DONE  
 **Порядок:** после Sprint 8; Sprint 9 не открывать.
 
 ---
@@ -70,24 +70,28 @@
 
 - [x] `task lint`, `task test` (integration — если store/service затронуты).
 - [x] TTL expire по-прежнему шлёт `message_deleted`.
-- [ ] Manual: Alice удаляет → у Bob пузырь пропадает; Bob не удаляет чужое.
+- [x] Manual: Alice удаляет → у Bob пузырь пропадает; Bob не удаляет чужое.
 
-Примечание: `task lint` / `task test` / `task test:integration` green; expirer-тесты без регрессии. Manual smoke — на устройстве / двух вкладках.
+Примечание: `task lint` / `task test` / `task test:integration` green; expirer-тесты без регрессии. Manual smoke подтверждён пользователем 2026-09-17.
 
 ---
 
 ## 7) Документация и закрытие
 
 - [x] `docs/chat-architecture-plan.md` — Sprint 10.
-- [ ] `docs/known-limitations-sprint-10.md` при закрытии.
-- [ ] Чеклист → **DONE**.
+- [x] `docs/known-limitations-sprint-10.md` при закрытии.
+- [x] Чеклист → **DONE**.
 
 ---
 
 ## 8) DoD
 
-- [ ] Только автор, удаление у обоих.
-- [ ] WS + история согласованы.
-- [ ] Lint/tests green.
+- [x] Только автор, удаление у обоих.
+- [x] WS + история согласованы.
+- [x] Lint/tests green.
 
-Примечание: авто-проверки зелёные; DoD закрыть после manual smoke.
+Примечание: авто green; smoke подтверждён 2026-09-17.
+
+---
+
+**Sprint 10 — DONE**
