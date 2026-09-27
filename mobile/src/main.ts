@@ -66,6 +66,15 @@ import {
   setupPin,
   verifyPin,
 } from "./pin";
+import {
+  STICKERS,
+  encodeStickerBody,
+  findSticker,
+  formatMessagePreview,
+  parseStickerBody,
+  stickerAssetUrl,
+  type StickerDef,
+} from "./stickers";
 
 /** Счётчик неверных PIN на unlock (lockout → wipe). */
 let pinFailCount = 0;
@@ -585,15 +594,30 @@ function appendBubble(msg: Message): HTMLElement {
     minute: "2-digit",
   });
 
+  const sticker = parseStickerBody(msg.body);
   const bubble = document.createElement("div");
-  bubble.className = `bubble ${isOutgoing ? "outgoing" : "incoming"}`;
+  bubble.className = `bubble ${isOutgoing ? "outgoing" : "incoming"}${sticker ? " sticker" : ""}`;
   bubble.dataset.msgId = msg.id;
+
+  const bodyHtml = sticker
+    ? `<img class="bubble-sticker" src="${escHtml(stickerAssetUrl(sticker))}" alt="${escHtml(findSticker(sticker.pack, sticker.id)?.label ?? "Стикер")}" />`
+    : `<div class="bubble-body">${escHtml(msg.body)}</div>`;
+
   bubble.innerHTML = `
-    <div class="bubble-body">${escHtml(msg.body)}</div>
+    ${bodyHtml}
     <div class="bubble-time">${time}</div>
     <div class="ttl-timer" style="display:none"></div>
     <button class="bubble-delete" type="button">Удалить</button>
   `;
+
+  const stickerImg = bubble.querySelector<HTMLImageElement>(".bubble-sticker");
+  stickerImg?.addEventListener("error", () => {
+    const fallback = document.createElement("div");
+    fallback.className = "bubble-body";
+    fallback.textContent = msg.body;
+    stickerImg.replaceWith(fallback);
+    bubble.classList.remove("sticker");
+  });
 
   if (isOutgoing) {
     const delBtn = bubble.querySelector<HTMLButtonElement>(".bubble-delete");
@@ -685,6 +709,7 @@ async function handleSendMessage(): Promise<void> {
   if (!body || !currentDialogId) return;
 
   input.value = "";
+  setStickerPanelOpen(false);
   try {
     const msg = await sendMessage(currentDialogId, body);
     appendBubble(msg);
@@ -697,11 +722,58 @@ async function handleSendMessage(): Promise<void> {
   }
 }
 
+async function handleSendSticker(sticker: StickerDef): Promise<void> {
+  if (!currentDialogId) return;
+  setStickerPanelOpen(false);
+  try {
+    const msg = await sendMessage(currentDialogId, encodeStickerBody(sticker.pack, sticker.id));
+    appendBubble(msg);
+    scrollToBottom();
+    log(`sendSticker OK: ${msg.id}`);
+  } catch (err) {
+    if (err instanceof PinRequiredError) return;
+    log(`ERR sendSticker: ${String(err)}`);
+  }
+}
+
+function setStickerPanelOpen(open: boolean): void {
+  const panel = document.getElementById("sticker-panel");
+  const btn = document.getElementById("btn-stickers");
+  panel?.classList.toggle("open", open);
+  btn?.classList.toggle("active", open);
+  btn?.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function toggleStickerPanel(): void {
+  const panel = document.getElementById("sticker-panel");
+  setStickerPanelOpen(!panel?.classList.contains("open"));
+}
+
+function initStickerPanel(): void {
+  const panel = document.getElementById("sticker-panel");
+  if (!panel) return;
+  panel.innerHTML = "";
+  for (const s of STICKERS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sticker-cell";
+    btn.title = s.label;
+    btn.setAttribute("role", "option");
+    const img = document.createElement("img");
+    img.src = s.src;
+    img.alt = s.label;
+    btn.appendChild(img);
+    btn.addEventListener("click", () => void handleSendSticker(s));
+    panel.appendChild(btn);
+  }
+}
+
 function handleBackFromChat(): void {
   stopAllTTLTimers();
   pendingMarkRead.clear();
   currentDialogId = "";
   currentPeerUsername = "";
+  setStickerPanelOpen(false);
   void loadHome();
 }
 
@@ -729,7 +801,8 @@ function renderDialogsList(dialogs: DialogListItem[]): void {
     row.className = "dialog-row";
     row.dataset.dialogId = d.dialog_id;
 
-    const preview = d.last_message?.body_preview?.trim() || "Нет сообщений";
+    const rawPreview = d.last_message?.body_preview?.trim() || "Нет сообщений";
+    const preview = rawPreview === "Нет сообщений" ? rawPreview : formatMessagePreview(rawPreview);
     const unread =
       d.unread_count > 0
         ? `<span class="dialog-unread">${d.unread_count > 99 ? "99+" : d.unread_count}</span>`
@@ -1543,8 +1616,11 @@ async function init(): Promise<void> {
   });
 
   // Chat screen
+  initStickerPanel();
   el("btn-back").addEventListener("click", handleBackFromChat);
   el("btn-send").addEventListener("click", () => void handleSendMessage());
+  el("btn-stickers").addEventListener("click", toggleStickerPanel);
+  el("msg-input").addEventListener("focus", () => setStickerPanelOpen(false));
   el("msg-input").addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Enter") void handleSendMessage();
   });
