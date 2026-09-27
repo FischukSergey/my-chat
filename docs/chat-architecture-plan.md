@@ -3,7 +3,7 @@
 Документ — living architecture: цели, принятые решения и фактическое устройство системы.  
 Детальные задачи и DoD — в `docs/sprint-N-plan.md` / `docs/sprint-N-checklist.md`. Контракты API — в `docs/api-sprint-N.md`.
 
-**Статус (2026-09):** спринты **1–8, 10 DONE**. **9** (at-rest encryption) — PLANNED, отложен. Prod: **https://beepru.ru**.
+**Статус (2026-09):** спринты **1–8, 10 DONE**. **9** (at-rest encryption) — PLANNED, отложен. **11** — IN PROGRESS (встроенные стикеры). Prod: **https://beepru.ru**.
 
 ---
 
@@ -19,7 +19,7 @@
 - backend на Go;
 - клиент гибридный / PWA (не полностью нативный App Store);
 - архитектура в стиле OtusMS: сервисы, слои `handlers → services → store`, конфиги, middleware, observability;
-- **без** Kubernetes, групповых чатов, E2EE, media/attachments (вне текущего scope).
+- **без** Kubernetes, групповых чатов, E2EE, media/attachments (вне текущего scope; Sprint 11 — только встроенный стикерпак в статике PWA, без upload).
 
 ---
 
@@ -316,6 +316,11 @@ AES-256-GCM envelope (Вариант A): ciphertext в БД, plaintext толь�
 Автор удаляет своё сообщение у обоих (soft-delete `deleted_at` + WS `message_deleted`, как TTL). `DELETE /api/v1/messages/{id}`. Без окна времени, без delete-for-me, без HARD DELETE. Known limitations: `docs/known-limitations-sprint-10.md`.
 
 Детали: `docs/sprint-10-plan.md`, `docs/sprint-10-checklist.md`, `docs/api-sprint-10.md`.
+
+### Sprint 11 — IN PROGRESS (встроенные стикеры)
+Пак в `mobile/public/stickers/`; `body` = `sticker:{pack}/{id}`; без новых HTTP-роутов и без S3. Клиент рисует картинку и подменяет Home preview на «Стикер». Не смешивать со Sprint 9 и с полноценными вложениями.
+
+Детали: `docs/sprint-11-plan.md`, `docs/sprint-11-checklist.md`, `docs/api-sprint-11.md`.
 
 ---
 
