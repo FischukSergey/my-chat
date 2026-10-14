@@ -62,7 +62,8 @@ DO UPDATE SET
 	return nil
 }
 
-// CountUnread возвращает количество непрочитанных сообщений пользователя.
+// CountUnread возвращает число непрочитанных входящих.
+// Soft-deleted (unsend / TTL) не входят в badge и GET /me/unread-count.
 func (r *ReceiptRepository) CountUnread(ctx context.Context, userID string) (int, error) {
 	const query = `
 SELECT COUNT(1)
@@ -72,6 +73,7 @@ LEFT JOIN message_receipts mr ON mr.message_id = m.id AND mr.user_id = $1
 WHERE
     (d.user_a_id = $1 OR d.user_b_id = $1)
     AND m.sender_id <> $1
+    AND m.deleted_at IS NULL
     AND mr.read_at IS NULL`
 
 	var unreadCount int
