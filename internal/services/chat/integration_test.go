@@ -445,3 +445,77 @@ func TestIntegration_RegisterCreateListSend(t *testing.T) {
 		t.Errorf("last message id: want %q, got %q", msg.ID, item.LastMessage.MessageID)
 	}
 }
+
+// TestIntegration_DeleteOwnUnreadDropsGlobalUnread: unsend непрочитанного снимает его с badge.
+func TestIntegration_DeleteOwnUnreadDropsGlobalUnread(t *testing.T) {
+	t.Parallel()
+
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+
+	ctx := context.Background()
+
+	s, err := store.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect to db: %v", err)
+	}
+	t.Cleanup(s.Close)
+
+	if _, err = s.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	userAID := uuid.NewString()
+	userBID := uuid.NewString()
+	_, err = s.DB().Exec(ctx, "INSERT INTO users (id) VALUES ($1), ($2)", userAID, userBID)
+	if err != nil {
+		t.Fatalf("insert users: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanCtx := context.Background()
+		_, _ = s.DB().Exec(cleanCtx, "DELETE FROM dialogs WHERE user_a_id IN ($1, $2) OR user_b_id IN ($1, $2)", userAID, userBID)
+		_, _ = s.DB().Exec(cleanCtx, "DELETE FROM users WHERE id IN ($1, $2)", userAID, userBID)
+	})
+
+	dialogRepo := store.NewDialogRepository(s)
+	messageRepo := store.NewMessageRepository(s)
+	receiptRepo := store.NewReceiptRepository(s)
+	dialog, err := dialogRepo.GetOrCreate(ctx, uuid.NewString(), userAID, userBID)
+	if err != nil {
+		t.Fatalf("create dialog: %v", err)
+	}
+
+	svc := chat.NewService(dialogRepo, messageRepo, receiptRepo, noopNotifier(), noopOutbox(), 0)
+
+	msg, err := svc.SendMessage(ctx, store.Message{
+		ID:       uuid.NewString(),
+		DialogID: dialog.ID,
+		SenderID: userAID,
+		Body:     "unsend me",
+	})
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+
+	unread, err := svc.UnreadCount(ctx, userBID)
+	if err != nil {
+		t.Fatalf("UnreadCount before delete: %v", err)
+	}
+	if unread != 1 {
+		t.Fatalf("unread before delete: want 1, got %d", unread)
+	}
+
+	if err = svc.DeleteOwnMessage(ctx, msg.ID, userAID); err != nil {
+		t.Fatalf("DeleteOwnMessage: %v", err)
+	}
+
+	unread, err = svc.UnreadCount(ctx, userBID)
+	if err != nil {
+		t.Fatalf("UnreadCount after delete: %v", err)
+	}
+	if unread != 0 {
+		t.Errorf("unread after unsend: want 0, got %d", unread)
+	}
+}

@@ -15,13 +15,11 @@
 
 ---
 
-## 2. Global `CountUnread` не фильтрует soft-deleted
+## 2. Global `CountUnread` не фильтрует soft-deleted — исправлено 2026-10-14
 
-**Проблема:** `ReceiptRepository.CountUnread` (global badge / `/me/unread-count`) не исключает `messages.deleted_at IS NOT NULL`. Per-dialog unread в `ListByUserID` уже фильтрует soft-delete.
+**Было:** `ReceiptRepository.CountUnread` (badge / `/me/unread-count`) считал строки с `deleted_at`. Per-dialog unread в `ListByUserID` уже исключал soft-delete. Unsend непрочитанного оставлял бейдж и «Непрочитано» на Home.
 
-**Следствие:** после TTL-expire global badge может кратковременно расходиться с суммой unread в списке чатов.
-
-**Решение (later):** добавить `AND m.deleted_at IS NULL` в `CountUnread` (и согласовать с worker badge).
+**Сейчас:** `AND m.deleted_at IS NULL` в `CountUnread`. Worker badge и `badge_updated` после DELETE используют тот же запрос.
 
 ---
 

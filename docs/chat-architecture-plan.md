@@ -3,7 +3,7 @@
 Документ — living architecture: цели, принятые решения и фактическое устройство системы.  
 Детальные задачи и DoD — в `docs/sprint-N-plan.md` / `docs/sprint-N-checklist.md`. Контракты API — в `docs/api-sprint-N.md`.
 
-**Статус (2026-09):** спринты **1–8, 10 DONE**. **9** (at-rest encryption) — PLANNED, отложен. **11** — IN PROGRESS (встроенные стикеры). Prod: **https://beepru.ru**.
+**Статус (2026-09):** спринты **1–8, 10–11 DONE**. **9** (at-rest encryption) — PLANNED, отложен. Prod: **https://beepru.ru**.
 
 ---
 
@@ -317,8 +317,8 @@ AES-256-GCM envelope (Вариант A): ciphertext в БД, plaintext толь�
 
 Детали: `docs/sprint-10-plan.md`, `docs/sprint-10-checklist.md`, `docs/api-sprint-10.md`.
 
-### Sprint 11 — IN PROGRESS (встроенные стикеры)
-Пак в `mobile/public/stickers/`; `body` = `sticker:{pack}/{id}`; без новых HTTP-роутов и без S3. Клиент рисует картинку и подменяет Home preview на «Стикер». Не смешивать со Sprint 9 и с полноценными вложениями.
+### Sprint 11 — DONE (встроенные стикеры)
+Пак в `mobile/public/stickers/` (16 Fluent Emoji 3D PNG); `body` = `sticker:{pack}/{id}`; без новых HTTP-роутов и без S3. Клиент рисует картинку и подменяет Home preview на «Стикер». Known limitations: `docs/known-limitations-sprint-11.md`.
 
 Детали: `docs/sprint-11-plan.md`, `docs/sprint-11-checklist.md`, `docs/api-sprint-11.md`.
 

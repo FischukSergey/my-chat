@@ -8,7 +8,7 @@
 - Sprint 8 PWA-чат и Sprint 10 unsend работают.
 - Sprint 9 (шифрование) отложен, не смешивать DoD.
 
-**Статус:** IN PROGRESS  
+**Статус:** DONE  
 **Порядок:** после Sprint 10; Sprint 9 не открывать.
 
 ---
@@ -59,23 +59,29 @@
 
 - [x] Юнит на парсер кода (валидный / чужой префикс / инъекция).
 - [x] `task lint`; `task test` если тронут Go (обычно нет).
-- [ ] Manual: Alice шлёт стикер → у Bob картинка; Home «Стикер»; unsend/TTL ок.
+- [x] Manual: Alice шлёт стикер → у Bob картинка; Home «Стикер»; unsend/TTL ок.
 
-Примечание: `stickers.test.ts` 8 тестов green; `npm run build` OK; `task lint` green (Go не меняли). Local smoke OK (2026-09-27). Prod — после деплоя, затем закрытие.
+Примечание: `stickers.test.ts` 8 тестов green; `npm run build` OK; `task lint` green (Go не меняли). Local smoke 2026-09-27; prod (`beepru.ru`) подтверждён пользователем.
 
 ---
 
 ## 6) Документация и закрытие
 
-- [ ] `docs/chat-architecture-plan.md` — Sprint 11.
-- [ ] `docs/known-limitations-sprint-11.md` при закрытии.
-- [ ] Чеклист → **DONE**.
+- [x] `docs/chat-architecture-plan.md` — Sprint 11.
+- [x] `docs/known-limitations-sprint-11.md` при закрытии.
+- [x] Чеклист → **DONE**.
 
 ---
 
 ## 7) DoD
 
-- [ ] Стикер уходит существующим send; оба видят картинку.
-- [ ] Home не показывает сырой код.
-- [ ] Нет S3 / новых роутов / загрузки файлов.
-- [ ] Lint/tests green; smoke в PWA.
+- [x] Стикер уходит существующим send; оба видят картинку.
+- [x] Home не показывает сырой код.
+- [x] Нет S3 / новых роутов / загрузки файлов.
+- [x] Lint/tests green; smoke в PWA.
+
+Примечание: Should `BuildPreview` на сервере не делали (клиентская подмена). Smoke local + prod 2026-09-27.
+
+---
+
+**Sprint 11 — DONE**
